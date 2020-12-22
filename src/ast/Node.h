@@ -35,6 +35,9 @@ class Node {
 public:
     Node(SrcLocation loc = {}) : location(std::move(loc)){};
     virtual ~Node() = default;
+    // avoid accidental slicing
+    Node(Node const&) = delete;
+    Node& operator=(Node const&) = delete;
 
     /** Return source location of the Node */
     const SrcLocation& getSrcLoc() const {
@@ -66,14 +69,16 @@ public:
         return !(*this == other);
     }
 
+    // FIXME: tomp - Own<>
     /** Create a clone (i.e. deep copy) of this node */
     virtual Node* clone() const = 0;
 
     /** Apply the mapper to all child nodes */
     virtual void apply(const NodeMapper& /* mapper */) {}
 
+    using ChildNodes = std::vector<std::reference_wrapper<Node const>>;
     /** Obtain a list of all embedded AST child nodes */
-    virtual std::vector<const Node*> getChildNodes() const {
+    virtual ChildNodes getChildNodes() const {
         return {};
     }
 

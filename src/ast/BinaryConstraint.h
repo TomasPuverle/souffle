@@ -78,8 +78,8 @@ public:
         rhs = map(std::move(rhs));
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        return {lhs.get(), rhs.get()};
+    ChildNodes getChildNodes() const override {
+        return {*lhs.get(), *rhs.get()};
     }
 
 protected:

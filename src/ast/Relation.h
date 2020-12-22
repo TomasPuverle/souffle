@@ -132,12 +132,8 @@ public:
         }
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> res;
-        for (const auto& cur : attributes) {
-            res.push_back(cur.get());
-        }
-        return res;
+    ChildNodes getChildNodes() const override {
+        return toConstRefVector<Node>(attributes);
     }
 
 protected:

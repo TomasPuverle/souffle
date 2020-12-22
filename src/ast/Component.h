@@ -185,31 +185,16 @@ public:
         }
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> res;
-
-        res.push_back(componentType.get());
-        for (const auto& cur : baseComponents) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : components) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : instantiations) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : types) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : relations) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : clauses) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : directives) {
-            res.push_back(cur.get());
-        }
+    ChildNodes getChildNodes() const override {
+        ChildNodes res;
+        res.push_back(*componentType.get());
+        append(res, makeDerefRange(baseComponents));
+        append(res, makeDerefRange(components));
+        append(res, makeDerefRange(instantiations));
+        append(res, makeDerefRange(types));
+        append(res, makeDerefRange(relations));
+        append(res, makeDerefRange(clauses));
+        append(res, makeDerefRange(directives));
         return res;
     }
 

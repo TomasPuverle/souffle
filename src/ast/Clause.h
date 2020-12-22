@@ -101,11 +101,13 @@ public:
         }
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> res = {head.get()};
-        for (auto& cur : bodyLiterals) {
-            res.push_back(cur.get());
+    ChildNodes getChildNodes() const override {
+        ChildNodes res;
+        if (head.get() != nullptr) {
+            res.push_back(*head.get());
         }
+
+        append(res, makeDerefRange(bodyLiterals));
         return res;
     }
 

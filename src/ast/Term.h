@@ -56,11 +56,9 @@ public:
         args.push_back(std::move(arg));
     }
 
-    std::vector<const Node*> getChildNodes() const override {
+    ChildNodes getChildNodes() const override {
         auto res = Argument::getChildNodes();
-        for (auto& cur : args) {
-            res.push_back(cur.get());
-        }
+        append(res, makeDerefRange(args));
         return res;
     }
 

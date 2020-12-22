@@ -68,13 +68,8 @@ public:
         return keys.size();
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> res;
-        for (auto& cur : keys) {
-            res.push_back(cur.get());
-        }
-        /* res.push_back(rhs.get()); */
-        return res;
+    ChildNodes getChildNodes() const override {
+        return toConstRefVector<Node>(keys);
     }
 
     FunctionalConstraint* clone() const override {

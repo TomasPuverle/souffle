@@ -73,10 +73,11 @@ public:
         }
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> childNodes;
+    ChildNodes getChildNodes() const override {
+        ChildNodes childNodes;
+        childNodes.reserve(plans.size());
         for (auto& plan : plans) {
-            childNodes.push_back(plan.second.get());
+            childNodes.push_back(*plan.second.get());
         }
         return childNodes;
     }

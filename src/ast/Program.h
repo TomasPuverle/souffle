@@ -163,32 +163,16 @@ public:
         }
     }
 
-    std::vector<const Node*> getChildNodes() const override {
-        std::vector<const Node*> res;
-        for (const auto& cur : pragmas) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : components) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : instantiations) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : functors) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : types) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : relations) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : clauses) {
-            res.push_back(cur.get());
-        }
-        for (const auto& cur : directives) {
-            res.push_back(cur.get());
-        }
+    ChildNodes getChildNodes() const override {
+        ChildNodes res;
+        append(res, makeDerefRange(pragmas));
+        append(res, makeDerefRange(components));
+        append(res, makeDerefRange(instantiations));
+        append(res, makeDerefRange(functors));
+        append(res, makeDerefRange(types));
+        append(res, makeDerefRange(relations));
+        append(res, makeDerefRange(clauses));
+        append(res, makeDerefRange(directives));
         return res;
     }
 

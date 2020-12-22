@@ -114,6 +114,14 @@ typename C::mapped_type const& getOr(
 }
 
 /**
+ * Append a range to the end of container
+ */
+template <class C, class R>
+void append(C& container, R const& range) {
+    container.insert(container.end(), range.begin(), range.end());
+}
+
+/**
  * A utility function enabling the creation of a vector with a fixed set of
  * elements within a single expression. This is the base case covering empty
  * vectors.
@@ -193,7 +201,7 @@ auto clone(const std::vector<std::unique_ptr<A>>& xs) {
  * @tparam Iter ... the type of wrapped iterator
  * @tparam T    ... the value to be accessed by the resulting iterator
  */
-template <typename Iter, typename T = typename std::remove_pointer<typename Iter::value_type>::type>
+template <typename Iter, typename T = typename std::remove_reference<decltype(**std::declval<Iter&>())>::type>
 struct IterDerefWrapper : public std::iterator<std::forward_iterator_tag, T> {
     /* The nested iterator. */
     Iter iter;
@@ -222,12 +230,12 @@ public:
     }
 
     /* The deref operator as required by the iterator concept. */
-    const T& operator*() const {
+    T& operator*() const {
         return **iter;
     }
 
     /* Support for the pointer operator. */
-    const T* operator->() const {
+    T* operator->() const {
         return &(**iter);
     }
 
@@ -467,6 +475,39 @@ bool equal_targets(
     auto comp = comp_deref<std::unique_ptr<Value>>();
     return equal_targets(
             a, b, [&comp](auto& a, auto& b) { return a.first == b.first && comp(a.second, b.second); });
+}
+
+/**
+ * Creates a range which dereferences the elements
+ * returned by the underlying iterators
+ */
+template <typename Iter>
+auto makeDerefRange(const Iter& a, const Iter& b) {
+    return make_range(derefIter(a), derefIter(b));
+}
+
+/**
+ * Creates a range which dereferences the elements
+ * returned by the iterators from the range.
+ */
+template <class R>
+auto makeDerefRange(R&& range) {
+    return makeDerefRange(range.begin(), range.end());
+}
+
+/**
+ * Given a range of pointer types, returns a vector<reference_wrapper<T>>
+ * where the elements are the dereferenced pointers
+ */
+class RefVectorDefault {};
+template <typename Out = RefVectorDefault, class R>
+auto toConstRefVector(R const& range) {
+    using ValueType = typename std::conditional<std::is_same_v<Out, RefVectorDefault>,
+            typename std::remove_reference<decltype(**range.begin())>::type, Out>::type const;
+    using Result = std::vector<std::reference_wrapper<ValueType>>;
+
+    auto deref = makeDerefRange(range);
+    return Result(deref.begin(), deref.end());
 }
 
 }  // namespace souffle

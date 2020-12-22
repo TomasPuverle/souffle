@@ -57,9 +57,9 @@ public:
         this->type = type;
     }
 
-    std::vector<const Node*> getChildNodes() const override {
+    ChildNodes getChildNodes() const override {
         auto res = Argument::getChildNodes();
-        res.push_back(value.get());
+        res.push_back(*value.get());
         return res;
     }
 

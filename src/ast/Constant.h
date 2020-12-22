@@ -38,6 +38,10 @@ public:
         return constant;
     }
 
+    void apply(const NodeMapper& /* mapper */) override {}
+
+    ChildNodes getChildNodes() const override { return {}; }
+
 protected:
     void print(std::ostream& os) const override {
         os << getConstant();

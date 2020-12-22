@@ -225,10 +225,8 @@ protected:
 template <typename R, typename... Ps, typename... Args>
 void visitDepthFirstPreOrder(const Node& root, Visitor<R, Ps...>& visitor, Args&... args) {
     visitor(root, args...);
-    for (const Node* cur : root.getChildNodes()) {
-        if (cur != nullptr) {
-            visitDepthFirstPreOrder(*cur, visitor, args...);
-        }
+    for (const Node& cur : root.getChildNodes()) {
+        visitDepthFirstPreOrder(cur, visitor, args...);
     }
 }
 
@@ -243,10 +241,8 @@ void visitDepthFirstPreOrder(const Node& root, Visitor<R, Ps...>& visitor, Args&
  */
 template <typename R, typename... Ps, typename... Args>
 void visitDepthFirstPostOrder(const Node& root, Visitor<R, Ps...>& visitor, Args&... args) {
-    for (const Node* cur : root.getChildNodes()) {
-        if (cur != nullptr) {
-            visitDepthFirstPostOrder(*cur, visitor, args...);
-        }
+    for (const Node& cur : root.getChildNodes()) {
+        visitDepthFirstPostOrder(cur, visitor, args...);
     }
     visitor(root, args...);
 }

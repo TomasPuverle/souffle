@@ -71,14 +71,12 @@ public:
         body = std::move(bodyLiterals);
     }
 
-    std::vector<const Node*> getChildNodes() const override {
+    ChildNodes getChildNodes() const override {
         auto res = Argument::getChildNodes();
         if (targetExpression) {
-            res.push_back(targetExpression.get());
+            res.push_back(*targetExpression.get());
         }
-        for (auto& cur : body) {
-            res.push_back(cur.get());
-        }
+        append(res, makeDerefRange(body));
         return res;
     }
 
