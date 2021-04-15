@@ -26,7 +26,7 @@
 #include "ram/ExistenceCheck.h"
 #include "ram/Expression.h"
 #include "ram/Filter.h"
-#include "ram/GuardedProject.h"
+#include "ram/GuardedInsert.h"
 #include "ram/IntrinsicOperator.h"
 #include "ram/Negation.h"
 #include "ram/Operation.h"
@@ -40,7 +40,7 @@ namespace souffle::ast2ram::provenance {
 
 Own<ram::Operation> ClauseTranslator::addNegatedDeltaAtom(
         Own<ram::Operation> op, const ast::Atom* atom) const {
-    size_t arity = atom->getArity();
+    std::size_t arity = atom->getArity();
     std::string name = getDeltaRelationName(atom->getQualifiedName());
 
     if (arity == 0) {
@@ -82,7 +82,7 @@ Own<ram::Operation> ClauseTranslator::addNegatedAtom(
 }
 
 void ClauseTranslator::indexAtoms(const ast::Clause& clause) {
-    size_t atomIdx = 0;
+    std::size_t atomIdx = 0;
     for (const auto* atom : getAtomOrdering(clause)) {
         // give the atom the current level
         int scanLevel = addOperatorLevel(atom);
@@ -101,13 +101,13 @@ void ClauseTranslator::indexAtoms(const ast::Clause& clause) {
 }
 
 Own<ram::Expression> ClauseTranslator::getLevelNumber(const ast::Clause& clause) const {
-    auto getLevelVariable = [&](size_t atomIdx) { return "@level_num_" + std::to_string(atomIdx); };
+    auto getLevelVariable = [&](std::size_t atomIdx) { return "@level_num_" + std::to_string(atomIdx); };
 
     const auto& bodyAtoms = getAtomOrdering(clause);
     if (bodyAtoms.empty()) return mk<ram::SignedConstant>(0);
 
     VecOwn<ram::Expression> values;
-    for (size_t i = 0; i < bodyAtoms.size(); i++) {
+    for (std::size_t i = 0; i < bodyAtoms.size(); i++) {
         auto levelVar = mk<ast::Variable>(getLevelVariable(i));
         values.push_back(context.translateValue(*valueIndex, levelVar.get()));
     }
@@ -147,7 +147,7 @@ Own<ram::Operation> ClauseTranslator::addAtomScan(
     return op;
 }
 
-Own<ram::Operation> ClauseTranslator::createProjection(const ast::Clause& clause) const {
+Own<ram::Operation> ClauseTranslator::createInsertion(const ast::Clause& clause) const {
     const auto head = clause.getHead();
     auto headRelationName = getClauseAtomName(clause, head);
 
@@ -167,11 +167,11 @@ Own<ram::Operation> ClauseTranslator::createProjection(const ast::Clause& clause
 
     // Relations with functional dependency constraints
     if (auto guardedConditions = getFunctionalDependencies(clause)) {
-        return mk<ram::GuardedProject>(headRelationName, std::move(values), std::move(guardedConditions));
+        return mk<ram::GuardedInsert>(headRelationName, std::move(values), std::move(guardedConditions));
     }
 
     // Everything else
-    return mk<ram::Project>(headRelationName, std::move(values));
+    return mk<ram::Insert>(headRelationName, std::move(values));
 }
 
 }  // namespace souffle::ast2ram::provenance

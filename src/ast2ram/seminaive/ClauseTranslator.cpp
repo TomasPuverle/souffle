@@ -43,11 +43,11 @@
 #include "ram/ExistenceCheck.h"
 #include "ram/Filter.h"
 #include "ram/FloatConstant.h"
-#include "ram/GuardedProject.h"
+#include "ram/GuardedInsert.h"
+#include "ram/Insert.h"
 #include "ram/LogRelationTimer.h"
 #include "ram/Negation.h"
 #include "ram/NestedIntrinsicOperator.h"
-#include "ram/Project.h"
 #include "ram/Query.h"
 #include "ram/Scan.h"
 #include "ram/Sequence.h"
@@ -81,7 +81,7 @@ std::string ClauseTranslator::getClauseString(const ast::Clause& clause) const {
     const auto& cloneAtoms = ast::getBodyLiterals<ast::Atom>(*renamedClone);
     const auto& originalAtoms = ast::getBodyLiterals<ast::Atom>(clause);
     assert(originalAtoms.size() == cloneAtoms.size() && "clone should have same atoms");
-    for (size_t i = 0; i < cloneAtoms.size(); i++) {
+    for (std::size_t i = 0; i < cloneAtoms.size(); i++) {
         auto cloneAtom = cloneAtoms.at(i);
         const auto* originalAtom = originalAtoms.at(i);
         assert(originalAtom->getQualifiedName() == cloneAtom->getQualifiedName() &&
@@ -93,7 +93,7 @@ std::string ClauseTranslator::getClauseString(const ast::Clause& clause) const {
 }
 
 Own<ram::Statement> ClauseTranslator::translateRecursiveClause(
-        const ast::Clause& clause, const std::set<const ast::Relation*>& scc, size_t version) {
+        const ast::Clause& clause, const std::set<const ast::Relation*>& scc, std::size_t version) {
     // Update version config
     sccAtoms = filter(ast::getBodyLiterals<ast::Atom>(clause),
             [&](const ast::Atom* atom) { return contains(scc, context.getAtomRelation(atom)); });
@@ -151,7 +151,7 @@ Own<ram::Statement> ClauseTranslator::createRamFactQuery(const ast::Clause& clau
     assert(!isRecursive() && "recursive clauses cannot have facts");
 
     // Create a fact statement
-    return mk<ram::Query>(createProjection(clause));
+    return mk<ram::Query>(createInsertion(clause));
 }
 
 Own<ram::Statement> ClauseTranslator::createRamRuleQuery(const ast::Clause& clause) {
@@ -162,7 +162,7 @@ Own<ram::Statement> ClauseTranslator::createRamRuleQuery(const ast::Clause& clau
     indexClause(clause);
 
     // Set up the RAM statement bottom-up
-    auto op = createProjection(clause);
+    auto op = createInsertion(clause);
     op = addVariableBindingConstraints(std::move(op));
     op = addBodyLiteralConstraints(clause, std::move(op));
     op = addGeneratorLevels(std::move(op), clause);
@@ -192,7 +192,7 @@ Own<ram::Operation> ClauseTranslator::addVariableBindingConstraints(Own<ram::Ope
     return op;
 }
 
-Own<ram::Operation> ClauseTranslator::createProjection(const ast::Clause& clause) const {
+Own<ram::Operation> ClauseTranslator::createInsertion(const ast::Clause& clause) const {
     const auto head = clause.getHead();
     auto headRelationName = getClauseAtomName(clause, head);
 
@@ -204,16 +204,16 @@ Own<ram::Operation> ClauseTranslator::createProjection(const ast::Clause& clause
     // Propositions
     if (head->getArity() == 0) {
         return mk<ram::Filter>(mk<ram::EmptinessCheck>(headRelationName),
-                mk<ram::Project>(headRelationName, std::move(values)));
+                mk<ram::Insert>(headRelationName, std::move(values)));
     }
 
     // Relations with functional dependency constraints
     if (auto guardedConditions = getFunctionalDependencies(clause)) {
-        return mk<ram::GuardedProject>(headRelationName, std::move(values), std::move(guardedConditions));
+        return mk<ram::GuardedInsert>(headRelationName, std::move(values), std::move(guardedConditions));
     }
 
     // Everything else
-    return mk<ram::Project>(headRelationName, std::move(values));
+    return mk<ram::Insert>(headRelationName, std::move(values));
 }
 
 Own<ram::Operation> ClauseTranslator::addAtomScan(
@@ -269,22 +269,43 @@ Own<ram::Operation> ClauseTranslator::addAdtUnpack(
         Own<ram::Operation> op, const ast::BranchInit* adt, int curLevel) const {
     assert(!context.isADTEnum(adt) && "ADT enums should not be unpacked");
 
-    // set branch tag constraint
-    op = addEqualityCheck(std::move(op), mk<ram::TupleElement>(curLevel, 0),
-            mk<ram::SignedConstant>(context.getADTBranchId(adt)), false);
-
-    // add remaining constant constraints
-    auto dummyArg = mk<ast::UnnamedVariable>();
     std::vector<ast::Argument*> branchArguments;
-    branchArguments.push_back(dummyArg.get());
+
+    int branchLevel;
+    // only for ADT with arity less than two (= simple)
+    // add padding for branch id
+    auto dummyArg = mk<ast::UnnamedVariable>();
+
+    if (context.isADTBranchSimple(adt)) {
+        // for ADT with arity < 2, we have a single level
+        branchLevel = curLevel;
+        branchArguments.push_back(dummyArg.get());
+    } else {
+        // for ADT with arity < 2, we have two levels of
+        // nesting, the second one being for the arguments
+        branchLevel = curLevel - 1;
+    }
+
     for (auto* arg : adt->getArguments()) {
         branchArguments.push_back(arg);
     }
-    op = addConstantConstraints(curLevel, branchArguments, std::move(op));
 
-    // add an unpack level
+    // set branch tag constraint
+    op = addEqualityCheck(std::move(op), mk<ram::TupleElement>(branchLevel, 0),
+            mk<ram::SignedConstant>(context.getADTBranchId(adt)), false);
+
+    if (context.isADTBranchSimple(adt)) {
+        op = addConstantConstraints(branchLevel, branchArguments, std::move(op));
+    } else {
+        op = addConstantConstraints(curLevel, branchArguments, std::move(op));
+        op = mk<ram::UnpackRecord>(
+                std::move(op), curLevel, mk<ram::TupleElement>(branchLevel, 1), branchArguments.size());
+    }
+
     const Location& loc = valueIndex->getDefinitionPoint(*adt);
-    op = mk<ram::UnpackRecord>(std::move(op), curLevel, makeRamTupleElement(loc), branchArguments.size());
+    // add an unpack level for main record
+    op = mk<ram::UnpackRecord>(std::move(op), branchLevel, makeRamTupleElement(loc), 2);
+
     return op;
 }
 
@@ -301,6 +322,11 @@ Own<ram::Operation> ClauseTranslator::addVariableIntroductions(
         } else if (const auto* adt = as<ast::BranchInit>(curOp)) {
             // add adt arguments through an unpack
             op = addAdtUnpack(std::move(op), adt, i);
+            if (!context.isADTBranchSimple(adt)) {
+                // for non-simple ADTs (arity > 1), we introduced two
+                // nesting levels
+                i--;
+            }
         } else {
             fatal("Unsupported AST node for creation of scan-level!");
         }
@@ -310,7 +336,7 @@ Own<ram::Operation> ClauseTranslator::addVariableIntroductions(
 
 Own<ram::Operation> ClauseTranslator::instantiateAggregator(
         Own<ram::Operation> op, const ast::Clause& clause, const ast::Aggregator* agg, int curLevel) const {
-    auto addAggEqCondition = [&](Own<ram::Condition> aggr, Own<ram::Expression> value, size_t pos) {
+    auto addAggEqCondition = [&](Own<ram::Condition> aggr, Own<ram::Expression> value, std::size_t pos) {
         if (isUndefValue(value.get())) return aggr;
 
         // TODO: float type equivalence check
@@ -336,7 +362,7 @@ Own<ram::Operation> ClauseTranslator::instantiateAggregator(
     const auto* aggAtom = static_cast<const ast::Atom*>(aggBodyAtoms.at(0));
 
     const auto& aggAtomArgs = aggAtom->getArguments();
-    for (size_t i = 0; i < aggAtomArgs.size(); i++) {
+    for (std::size_t i = 0; i < aggAtomArgs.size(); i++) {
         const auto* arg = aggAtomArgs.at(i);
 
         // variable bindings are issued differently since we don't want self
@@ -360,15 +386,15 @@ Own<ram::Operation> ClauseTranslator::instantiateAggregator(
     auto expr = aggExpr ? context.translateValue(*valueIndex, aggExpr) : nullptr;
 
     // add Ram-Aggregation layer
-    return mk<ram::Aggregate>(std::move(op), context.getOverloadedAggregatorOperator(agg),
+    return mk<ram::Aggregate>(std::move(op), context.getOverloadedAggregatorOperator(*agg),
             getClauseAtomName(clause, aggAtom), expr ? std::move(expr) : mk<ram::UndefValue>(),
             aggCond ? std::move(aggCond) : mk<ram::True>(), curLevel);
 }
 
 Own<ram::Operation> ClauseTranslator::instantiateMultiResultFunctor(
-        Own<ram::Operation> op, const ast::IntrinsicFunctor* inf, int curLevel) const {
+        Own<ram::Operation> op, const ast::IntrinsicFunctor& inf, int curLevel) const {
     VecOwn<ram::Expression> args;
-    for (auto&& x : inf->getArguments()) {
+    for (auto&& x : inf.getArguments()) {
         args.push_back(context.translateValue(*valueIndex, x));
     }
 
@@ -387,12 +413,12 @@ Own<ram::Operation> ClauseTranslator::instantiateMultiResultFunctor(
 
 Own<ram::Operation> ClauseTranslator::addGeneratorLevels(
         Own<ram::Operation> op, const ast::Clause& clause) const {
-    size_t curLevel = operators.size() + generators.size() - 1;
+    std::size_t curLevel = operators.size() + generators.size() - 1;
     for (const auto* generator : reverse(generators)) {
         if (auto agg = as<ast::Aggregator>(generator)) {
             op = instantiateAggregator(std::move(op), clause, agg, curLevel);
         } else if (const auto* inf = as<ast::IntrinsicFunctor>(generator)) {
-            op = instantiateMultiResultFunctor(std::move(op), inf, curLevel);
+            op = instantiateMultiResultFunctor(std::move(op), *inf, curLevel);
         } else {
             assert(false && "unhandled generator");
         }
@@ -403,7 +429,7 @@ Own<ram::Operation> ClauseTranslator::addGeneratorLevels(
 
 Own<ram::Operation> ClauseTranslator::addNegatedDeltaAtom(
         Own<ram::Operation> op, const ast::Atom* atom) const {
-    size_t arity = atom->getArity();
+    std::size_t arity = atom->getArity();
     std::string name = getDeltaRelationName(atom->getQualifiedName());
 
     if (arity == 0) {
@@ -414,7 +440,7 @@ Own<ram::Operation> ClauseTranslator::addNegatedDeltaAtom(
     // else, we construct the atom and create a negation
     VecOwn<ram::Expression> values;
     auto args = atom->getArguments();
-    for (size_t i = 0; i < arity; i++) {
+    for (std::size_t i = 0; i < arity; i++) {
         values.push_back(context.translateValue(*valueIndex, args[i]));
     }
 
@@ -424,7 +450,7 @@ Own<ram::Operation> ClauseTranslator::addNegatedDeltaAtom(
 
 Own<ram::Operation> ClauseTranslator::addNegatedAtom(
         Own<ram::Operation> op, const ast::Clause& /* clause */, const ast::Atom* atom) const {
-    size_t arity = atom->getArity();
+    std::size_t arity = atom->getArity();
     std::string name = getConcreteRelationName(atom->getQualifiedName());
 
     if (arity == 0) {
@@ -435,7 +461,7 @@ Own<ram::Operation> ClauseTranslator::addNegatedAtom(
     // else, we construct the atom and create a negation
     VecOwn<ram::Expression> values;
     auto args = atom->getArguments();
-    for (size_t i = 0; i < arity; i++) {
+    for (std::size_t i = 0; i < arity; i++) {
         values.push_back(context.translateValue(*valueIndex, args[i]));
     }
     return mk<ram::Filter>(
@@ -458,7 +484,7 @@ Own<ram::Operation> ClauseTranslator::addBodyLiteralConstraints(
         }
 
         // also add in prev stuff
-        for (size_t i = version + 1; i < sccAtoms.size(); i++) {
+        for (std::size_t i = version + 1; i < sccAtoms.size(); i++) {
             op = addNegatedDeltaAtom(std::move(op), sccAtoms.at(i));
         }
     }
@@ -478,12 +504,12 @@ Own<ram::Condition> ClauseTranslator::createCondition(const ast::Clause& clause)
 }
 
 Own<ram::Expression> ClauseTranslator::translateConstant(const ast::Constant& constant) const {
-    if (auto strConstant = dynamic_cast<const ast::StringConstant*>(&constant)) {
+    if (auto strConstant = as<ast::StringConstant>(constant)) {
         return mk<ram::StringConstant>(strConstant->getConstant());
     } else if (isA<ast::NilConstant>(&constant)) {
         return mk<ram::SignedConstant>(0);
-    } else if (const auto* numConstant = dynamic_cast<const ast::NumericConstant*>(&constant)) {
-        switch (context.getInferredNumericConstantType(numConstant)) {
+    } else if (auto* numConstant = as<ast::NumericConstant>(constant)) {
+        switch (context.getInferredNumericConstantType(*numConstant)) {
             case ast::NumericConstant::Type::Int:
                 return mk<ram::SignedConstant>(RamSignedFromString(numConstant->getConstant(), nullptr, 0));
             case ast::NumericConstant::Type::Uint:
@@ -504,11 +530,11 @@ Own<ram::Operation> ClauseTranslator::addEqualityCheck(
 }
 
 Own<ram::Operation> ClauseTranslator::addConstantConstraints(
-        size_t curLevel, const std::vector<ast::Argument*>& arguments, Own<ram::Operation> op) const {
-    for (size_t i = 0; i < arguments.size(); i++) {
+        std::size_t curLevel, const std::vector<ast::Argument*>& arguments, Own<ram::Operation> op) const {
+    for (std::size_t i = 0; i < arguments.size(); i++) {
         const auto* argument = arguments.at(i);
         if (const auto* numericConstant = as<ast::NumericConstant>(argument)) {
-            bool isFloat = context.getInferredNumericConstantType(numericConstant) ==
+            bool isFloat = context.getInferredNumericConstantType(*numericConstant) ==
                            ast::NumericConstant::Type::Float;
             auto lhs = mk<ram::TupleElement>(curLevel, i);
             auto rhs = translateConstant(*numericConstant);
@@ -517,6 +543,12 @@ Own<ram::Operation> ClauseTranslator::addConstantConstraints(
             auto lhs = mk<ram::TupleElement>(curLevel, i);
             auto rhs = translateConstant(*constant);
             op = addEqualityCheck(std::move(op), std::move(lhs), std::move(rhs), false);
+        } else if (const auto* adt = as<ast::BranchInit>(argument)) {
+            if (context.isADTEnum(adt)) {
+                auto lhs = mk<ram::TupleElement>(curLevel, i);
+                auto rhs = mk<ram::SignedConstant>(context.getADTBranchId(adt));
+                op = addEqualityCheck(std::move(op), std::move(lhs), std::move(rhs), false);
+            }
         }
     }
 
@@ -534,7 +566,7 @@ Own<ram::Condition> ClauseTranslator::getFunctionalDependencies(const ast::Claus
     const auto& attributes = relation->getAttributes();
     const auto& headArgs = head->getArguments();
 
-    // Impose the functional dependencies of the relation on each PROJECT
+    // Impose the functional dependencies of the relation on each INSERT
     VecOwn<ram::Condition> dependencies;
     std::vector<const ast::FunctionalConstraint*> addedConstraints;
     for (const auto* fd : relation->getFunctionalDependencies()) {
@@ -560,7 +592,7 @@ Own<ram::Condition> ClauseTranslator::getFunctionalDependencies(const ast::Claus
         // Grab the necessary head arguments
         VecOwn<ram::Expression> vals;
         VecOwn<ram::Expression> valsCopy;
-        for (size_t i = 0; i < attributes.size(); ++i) {
+        for (std::size_t i = 0; i < attributes.size(); ++i) {
             const auto attribute = attributes[i];
             if (contains(keys, attribute->getName())) {
                 // If this particular source argument matches the head argument, insert it.
@@ -623,7 +655,7 @@ int ClauseTranslator::addGeneratorLevel(const ast::Argument* arg) {
 }
 
 void ClauseTranslator::indexNodeArguments(int nodeLevel, const std::vector<ast::Argument*>& nodeArgs) {
-    for (size_t i = 0; i < nodeArgs.size(); i++) {
+    for (std::size_t i = 0; i < nodeArgs.size(); i++) {
         const auto& arg = nodeArgs.at(i);
 
         // check for variable references
@@ -642,18 +674,23 @@ void ClauseTranslator::indexNodeArguments(int nodeLevel, const std::vector<ast::
 
         // check for nested ADT branches
         if (const auto* adt = as<ast::BranchInit>(arg)) {
-            valueIndex->setAdtDefinition(*adt, nodeLevel, i);
+            if (!context.isADTEnum(adt)) {
+                valueIndex->setAdtDefinition(*adt, nodeLevel, i);
+                auto unpackLevel = addOperatorLevel(adt);
 
-            // introduce new nesting level for unpack
-            auto unpackLevel = addOperatorLevel(adt);
-
-            auto dummyArg = mk<ast::UnnamedVariable>();
-            std::vector<ast::Argument*> arguments;
-            arguments.push_back(dummyArg.get());
-            for (auto* arg : adt->getArguments()) {
-                arguments.push_back(arg);
+                if (context.isADTBranchSimple(adt)) {
+                    std::vector<ast::Argument*> arguments;
+                    auto dummyArg = mk<ast::UnnamedVariable>();
+                    arguments.push_back(dummyArg.get());
+                    for (auto* arg : adt->getArguments()) {
+                        arguments.push_back(arg);
+                    }
+                    indexNodeArguments(unpackLevel, arguments);
+                } else {
+                    auto argumentUnpackLevel = addOperatorLevel(adt);
+                    indexNodeArguments(argumentUnpackLevel, adt->getArguments());
+                }
             }
-            indexNodeArguments(unpackLevel, arguments);
         }
     }
 }
@@ -682,7 +719,7 @@ void ClauseTranslator::indexAggregatorBody(const ast::Aggregator& agg) {
 
     // Add the variable references inside this atom
     const auto& aggAtomArgs = aggAtom->getArguments();
-    for (size_t i = 0; i < aggAtomArgs.size(); i++) {
+    for (std::size_t i = 0; i < aggAtomArgs.size(); i++) {
         const auto* arg = aggAtomArgs.at(i);
         if (const auto* var = as<ast::Variable>(arg)) {
             valueIndex->addVarReference(var->getName(), aggLoc.identifier, (int)i);

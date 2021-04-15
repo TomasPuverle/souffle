@@ -15,6 +15,8 @@
 #include "ast/analysis/TypeConstraints.h"
 #include "ast/analysis/Type.h"
 
+#include <cassert>
+
 namespace souffle::ast::analysis {
 
 /**
@@ -255,7 +257,7 @@ static TypeConstraint satisfiesOverload(const TypeEnvironment& typeEnv, Intrinsi
             overloads = filterNot(std::move(overloads), [&](const IntrinsicFunctorInfo& x) -> bool {
                 if (!x.variadic && args.size() != x.params.size()) return true;  // arity mismatch?
 
-                for (size_t i = 0; i < args.size(); ++i) {
+                for (std::size_t i = 0; i < args.size(); ++i) {
                     if (!possible(x.params[x.variadic ? 0 : i], args[i])) return true;
                 }
 
@@ -273,7 +275,7 @@ static TypeConstraint satisfiesOverload(const TypeEnvironment& typeEnv, Intrinsi
                 // `TypeEnv::getConstantType` is undefined).
                 // Handle this by not imposing constraints on the arguments.
                 if (overload.op != FunctorOp::ORD) {
-                    for (size_t i = 0; i < args.size(); ++i) {
+                    for (std::size_t i = 0; i < args.size(); ++i) {
                         auto argTy = overload.params[overload.variadic ? 0 : i];
                         auto& currArg = assigment[args[i]];
                         auto newArg = subtypesOf(currArg, argTy);
@@ -315,7 +317,7 @@ static TypeConstraint satisfiesOverload(const TypeEnvironment& typeEnv, Intrinsi
  * Constraint on record type and its elements.
  */
 static TypeConstraint isSubtypeOfComponent(
-        const TypeVar& elementVariable, const TypeVar& recordVariable, size_t index) {
+        const TypeVar& elementVariable, const TypeVar& recordVariable, std::size_t index) {
     struct C : public Constraint<TypeVar> {
         TypeVar elementVariable;
         TypeVar recordVariable;
@@ -484,53 +486,72 @@ void TypeConstraintsAnalysis::visit_(type_identity<BinaryConstraint>, const Bina
     addConstraint(isSubtypeOf(rhs, lhs));
 }
 
-void TypeConstraintsAnalysis::visit_(type_identity<Functor>, const Functor& fun) {
+void TypeConstraintsAnalysis::visit_(type_identity<IntrinsicFunctor>, const IntrinsicFunctor& fun) {
     auto functorVar = getVar(fun);
 
-    auto intrFun = as<IntrinsicFunctor>(fun);
-    if (intrFun) {
-        auto argVars = map(intrFun->getArguments(), [&](auto&& x) { return getVar(x); });
-        // The type of the user-defined function might not be set at this stage.
-        // If so then add overloads as alternatives
-        if (!typeAnalysis.hasValidTypeInfo(intrFun))
-            addConstraint(satisfiesOverload(typeEnv, functorBuiltIn(intrFun->getBaseFunctionOp()), functorVar,
-                    argVars, isInfixFunctorOp(intrFun->getBaseFunctionOp())));
+    auto argVars = map(fun.getArguments(), [&](auto&& x) { return getVar(x); });
+    // The type of the user-defined function might not be set at this stage.
+    // If so then add overloads as alternatives
+    if (!typeAnalysis.hasValidTypeInfo(fun))
+        addConstraint(satisfiesOverload(typeEnv, functorBuiltIn(fun.getBaseFunctionOp()), functorVar, argVars,
+                isInfixFunctorOp(fun.getBaseFunctionOp())));
 
-        // In polymorphic case
-        // We only require arguments to share a base type with a return type.
-        // (instead of, for example, requiring them to be of the same type)
-        // This approach is related to old type semantics
-        // See #1296 and tests/semantic/type_system4
-        if (isInfixFunctorOp(intrFun->getBaseFunctionOp())) {
-            for (auto&& var : argVars)
-                addConstraint(subtypesOfTheSameBaseType(var, functorVar));
+    // In polymorphic case
+    // We only require arguments to share a base type with a return type.
+    // (instead of, for example, requiring them to be of the same type)
+    // This approach is related to old type semantics
+    // See #1296 and tests/semantic/type_system4
+    if (isInfixFunctorOp(fun.getBaseFunctionOp())) {
+        for (auto&& var : argVars)
+            addConstraint(subtypesOfTheSameBaseType(var, functorVar));
 
-            return;
-        }
-
-        if (!typeAnalysis.hasValidTypeInfo(intrFun)) {
-            return;
-        }
+        return;
     }
 
-    // Skip constraint adding if type info is not available
-    if (!typeAnalysis.hasValidTypeInfo(&fun)) {
+    if (!typeAnalysis.hasValidTypeInfo(fun)) {
         return;
     }
 
     // add a constraint for the return type of the functor
-    TypeAttribute returnType = typeAnalysis.getFunctorReturnType(&fun);
+    TypeAttribute returnType = typeAnalysis.getFunctorReturnTypeAttribute(fun);
     addConstraint(isSubtypeOf(functorVar, typeEnv.getConstantType(returnType)));
     // Special case. Ord returns the ram representation of any object.
-    if (intrFun && typeAnalysis.getPolymorphicOperator(intrFun) == FunctorOp::ORD) {
+    if (typeAnalysis.getPolymorphicOperator(fun) == FunctorOp::ORD) {
         return;
     }
 
     // Add constraints on arguments
     auto arguments = fun.getArguments();
-    for (size_t i = 0; i < arguments.size(); ++i) {
-        TypeAttribute argType = typeAnalysis.getFunctorArgType(&fun, i);
+    for (std::size_t i = 0; i < arguments.size(); ++i) {
+        TypeAttribute argType = typeAnalysis.getFunctorParamTypeAttribute(fun, i);
         addConstraint(isSubtypeOf(getVar(arguments[i]), typeEnv.getConstantType(argType)));
+    }
+}
+
+void TypeConstraintsAnalysis::visit_(type_identity<UserDefinedFunctor>, const UserDefinedFunctor& fun) {
+    auto functorVar = getVar(fun);
+
+    // I found this very confusing, hopefully this comment helps someone else.
+    // I assumed that this branch cannot be taken, because the Semantic checker
+    // verifies that every functor has a declaration!  However, it turns out that
+    // the SemanticChecker is *not* the first Transformer which gets run and so
+    // it's not really clear that those invariants hold yet!
+    // I don't particularly like that but am not at a place where I can change the
+    // order of the passes/transformers.  So, for now, here's a comment for the next
+    // person going doing this rabbit hole.
+    auto const& arguments = fun.getArguments();
+    if (!typeAnalysis.hasValidTypeInfo(fun) || typeAnalysis.getFunctorArity(fun) != arguments.size()) {
+        return;
+    }
+
+    // add a constraint for the return type of the functor
+    Type const& returnType = typeAnalysis.getFunctorReturnType(fun);
+    addConstraint(isSubtypeOf(functorVar, returnType));
+
+    // Add constraints on arguments
+    for (std::size_t i = 0; i < arguments.size(); ++i) {
+        Type const& paramType = typeAnalysis.getFunctorParamType(fun, i);
+        addConstraint(isSubtypeOf(getVar(arguments[i]), paramType));
     }
 }
 
@@ -557,7 +578,7 @@ void TypeConstraintsAnalysis::visit_(type_identity<TypeCast>, const ast::TypeCas
 
 void TypeConstraintsAnalysis::visit_(type_identity<RecordInit>, const RecordInit& record) {
     auto arguments = record.getArguments();
-    for (size_t i = 0; i < arguments.size(); ++i) {
+    for (std::size_t i = 0; i < arguments.size(); ++i) {
         addConstraint(isSubtypeOfComponent(getVar(arguments[i]), getVar(record), i));
     }
 }
@@ -589,7 +610,7 @@ void TypeConstraintsAnalysis::visit_(type_identity<BranchInit>, const BranchInit
         }
 
         // Add constraints for each of the branch arguments.
-        for (size_t i = 0; i < branchArgs.size(); ++i) {
+        for (std::size_t i = 0; i < branchArgs.size(); ++i) {
             auto argVar = getVar(branchArgs[i]);
             addConstraint(isSubtypeOf(argVar, *branchTypes[i]));
         }
@@ -628,7 +649,7 @@ void TypeConstraintsAnalysis::iterateOverAtom(
         return;  // error in input program
     }
 
-    for (size_t i = 0; i < atts.size(); i++) {
+    for (std::size_t i = 0; i < atts.size(); i++) {
         const auto& typeName = atts[i]->getTypeName();
         if (typeEnv.isType(typeName)) {
             map(*args[i], typeEnv.getType(typeName));

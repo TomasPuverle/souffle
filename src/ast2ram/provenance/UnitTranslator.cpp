@@ -30,9 +30,9 @@
 #include "ram/Expression.h"
 #include "ram/Extend.h"
 #include "ram/Filter.h"
+#include "ram/Insert.h"
 #include "ram/LogRelationTimer.h"
 #include "ram/Negation.h"
-#include "ram/Project.h"
 #include "ram/Query.h"
 #include "ram/Scan.h"
 #include "ram/Sequence.h"
@@ -90,14 +90,14 @@ Own<ram::Relation> UnitTranslator::createRamRelation(
 }
 
 std::string UnitTranslator::getInfoRelationName(const ast::Clause* clause) const {
-    size_t clauseID = context->getClauseNum(clause);
+    std::size_t clauseID = context->getClauseNum(clause);
     auto infoRelQualifiedName = clause->getHead()->getQualifiedName();
     infoRelQualifiedName.append("@info");
     infoRelQualifiedName.append(toString(clauseID));
     return getConcreteRelationName(infoRelQualifiedName);
 }
 
-VecOwn<ram::Relation> UnitTranslator::createRamRelations(const std::vector<size_t>& sccOrdering) const {
+VecOwn<ram::Relation> UnitTranslator::createRamRelations(const std::vector<std::size_t>& sccOrdering) const {
     // Regular relations
     auto ramRelations = seminaive::UnitTranslator::createRamRelations(sccOrdering);
 
@@ -119,7 +119,7 @@ VecOwn<ram::Relation> UnitTranslator::createRamRelations(const std::vector<size_
         attributeTypeQualifiers.push_back("s:symbol");
 
         // (3) For all atoms + negs + bcs: rel_<i>:symbol
-        for (size_t i = 0; i < clause->getBodyLiterals().size(); i++) {
+        for (std::size_t i = 0; i < clause->getBodyLiterals().size(); i++) {
             const auto* literal = clause->getBodyLiterals().at(i);
             if (isA<ast::Atom>(literal) || isA<ast::Negation>(literal) ||
                     isA<ast::BinaryConstraint>(literal)) {
@@ -176,13 +176,13 @@ Own<ram::Statement> UnitTranslator::generateMergeRelations(
         const ast::Relation* rel, const std::string& destRelation, const std::string& srcRelation) const {
     VecOwn<ram::Expression> values;
 
-    // Predicate - project all values
-    for (size_t i = 0; i < rel->getArity() + 2; i++) {
+    // Predicate - insert all values
+    for (std::size_t i = 0; i < rel->getArity() + 2; i++) {
         values.push_back(mk<ram::TupleElement>(0, i));
     }
 
-    auto projection = mk<ram::Project>(destRelation, std::move(values));
-    auto stmt = mk<ram::Query>(mk<ram::Scan>(srcRelation, 0, std::move(projection)));
+    auto insertion = mk<ram::Insert>(destRelation, std::move(values));
+    auto stmt = mk<ram::Query>(mk<ram::Scan>(srcRelation, 0, std::move(insertion)));
     if (rel->getRepresentation() == RelationRepresentation::EQREL) {
         return mk<ram::Sequence>(mk<ram::Extend>(destRelation, srcRelation), std::move(stmt));
     }
@@ -192,21 +192,22 @@ Own<ram::Statement> UnitTranslator::generateMergeRelations(
 Own<ram::Sequence> UnitTranslator::generateInfoClauses(const ast::Program* program) {
     VecOwn<ram::Statement> infoClauseCalls;
 
-    size_t stratumCount = context->getNumberOfSCCs();
+    std::size_t stratumCount = context->getNumberOfSCCs();
     for (const auto* clause : program->getClauses()) {
         if (isFact(*clause)) {
             continue;
         }
-        size_t clauseID = context->getClauseNum(clause);
+        std::size_t clauseID = context->getClauseNum(clause);
 
         // Argument info generator
         int functorNumber = 0;
         int aggregateNumber = 0;
+        int typecastNumber = 0;
         auto getArgInfo = [&](const ast::Argument* arg) -> std::string {
-            if (auto* var = dynamic_cast<const ast::Variable*>(arg)) {
+            if (auto* var = as<ast::Variable>(arg)) {
                 return toString(*var);
             }
-            if (auto* constant = dynamic_cast<const ast::Constant*>(arg)) {
+            if (auto* constant = as<ast::Constant>(arg)) {
                 return toString(*constant);
             }
             if (isA<ast::UnnamedVariable>(arg)) {
@@ -217,6 +218,9 @@ Own<ram::Sequence> UnitTranslator::generateInfoClauses(const ast::Program* progr
             }
             if (isA<ast::Aggregator>(arg)) {
                 return tfm::format("agg_%d", aggregateNumber++);
+            }
+            if (isA<ast::TypeCast>(arg)) {
+                return tfm::format("typecast_%d", typecastNumber++);
             }
             fatal("Unhandled argument type");
         };
@@ -240,13 +244,13 @@ Own<ram::Sequence> UnitTranslator::generateInfoClauses(const ast::Program* progr
         //      - atoms: relName,{atom arg info}
         //      - negs: !relName
         for (const auto* literal : clause->getBodyLiterals()) {
-            if (const auto* atom = dynamic_cast<const ast::Atom*>(literal)) {
+            if (const auto* atom = as<ast::Atom>(literal)) {
                 std::string atomDescription = toString(atom->getQualifiedName());
                 for (const auto* arg : atom->getArguments()) {
                     atomDescription.append("," + getArgInfo(arg));
                 }
                 factArguments.push_back(mk<ram::StringConstant>(atomDescription));
-            } else if (const auto* neg = dynamic_cast<const ast::Negation*>(literal)) {
+            } else if (const auto* neg = as<ast::Negation>(literal)) {
                 const auto* atom = neg->getAtom();
                 std::string relName = toString(atom->getQualifiedName());
                 factArguments.push_back(mk<ram::StringConstant>("!" + relName));
@@ -269,8 +273,8 @@ Own<ram::Sequence> UnitTranslator::generateInfoClauses(const ast::Program* progr
         /* -- Finalising -- */
         // Push in the final clause
         std::string infoRelName = getInfoRelationName(clause);
-        auto factProjection = mk<ram::Project>(infoRelName, std::move(factArguments));
-        auto infoClause = mk<ram::Statement, ram::Query>(std::move(factProjection));
+        auto factInsertion = mk<ram::Insert>(infoRelName, std::move(factArguments));
+        auto infoClause = mk<ram::Statement, ram::Query>(std::move(factInsertion));
 
         // Add logging
         if (Global::config().has("profile")) {
@@ -399,7 +403,7 @@ Own<ram::Statement> UnitTranslator::makeNegationSubproofSubroutine(const ast::Cl
     }
 
     // Keep track of references in a dummy index
-    size_t count = 0;
+    std::size_t count = 0;
     std::map<int, std::string> idToVarName;
     auto dummyValueIndex = mk<ValueIndex>();
     visit(clause, [&](const ast::Variable& var) {
@@ -424,7 +428,7 @@ Own<ram::Statement> UnitTranslator::makeNegationSubproofSubroutine(const ast::Cl
 
     // Create the search sequence
     VecOwn<ram::Statement> searchSequence;
-    size_t litNumber = 0;
+    std::size_t litNumber = 0;
     for (const auto* lit : lits) {
         if (const auto* atom = as<ast::Atom>(lit)) {
             auto existenceCheck = makeRamAtomExistenceCheck(atom, idToVarName, *dummyValueIndex);
@@ -439,11 +443,15 @@ Own<ram::Statement> UnitTranslator::makeNegationSubproofSubroutine(const ast::Cl
                     makeIfStatement(std::move(existenceCheck), makeRamReturnFalse(), makeRamReturnTrue());
             appendStmt(searchSequence, std::move(ifStatement));
         } else if (const auto* con = as<ast::Constraint>(lit)) {
-            auto condition = context->translateConstraint(*dummyValueIndex, con);
-            transformVariablesToSubroutineArgs(condition.get(), idToVarName);
-            auto ifStatement =
-                    makeIfStatement(std::move(condition), makeRamReturnTrue(), makeRamReturnFalse());
-            appendStmt(searchSequence, std::move(ifStatement));
+            bool hasAggregate = false;
+            visit(clause, [&](const ast::Aggregator& var) { hasAggregate = true; });
+            if (!hasAggregate) {
+                auto condition = context->translateConstraint(*dummyValueIndex, con);
+                transformVariablesToSubroutineArgs(condition.get(), idToVarName);
+                auto ifStatement =
+                        makeIfStatement(std::move(condition), makeRamReturnTrue(), makeRamReturnFalse());
+                appendStmt(searchSequence, std::move(ifStatement));
+            }
         }
 
         litNumber++;

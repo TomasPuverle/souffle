@@ -46,7 +46,7 @@ namespace souffle::ram {
  */
 class UnpackRecord : public TupleOperation {
 public:
-    UnpackRecord(Own<Operation> nested, int ident, Own<Expression> expr, size_t arity)
+    UnpackRecord(Own<Operation> nested, int ident, Own<Expression> expr, std::size_t arity)
             : TupleOperation(ident, std::move(nested)), expression(std::move(expr)), arity(arity) {
         assert(expression != nullptr && "Expression is a null-pointer");
     }
@@ -81,7 +81,7 @@ public:
 protected:
     void print(std::ostream& os, int tabpos) const override {
         os << times(" ", tabpos);
-        os << "UNPACK t" << getTupleId() << " FROM " << *expression << "\n";
+        os << "UNPACK t" << getTupleId() << " ARITY " << arity << " FROM " << *expression << "\n";
         NestedOperation::print(os, tabpos + 1);
     }
 
@@ -95,7 +95,7 @@ protected:
     Own<Expression> expression;
 
     /** Arity of the unpacked tuple */
-    const size_t arity;
+    const std::size_t arity;
 };
 
 }  // namespace souffle::ram

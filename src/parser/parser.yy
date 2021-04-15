@@ -73,111 +73,18 @@
     #include "ast/UnnamedVariable.h"
     #include "ast/UserDefinedFunctor.h"
     #include "ast/Variable.h"
+    #include "parser/Helper.h"
     #include "parser/ParserUtils.h"
     #include "souffle/RamTypes.h"
     #include "souffle/BinaryConstraintOps.h"
     #include "souffle/utility/ContainerUtil.h"
     #include "souffle/utility/StringUtil.h"
 
+    #include <ostream>
+    #include <string>
+    #include <vector>
+
     using namespace souffle;
-
-    namespace souffle {
-        class ParserDriver;
-
-        namespace parser {
-          // FIXME: (when we can finally use Bison 3.2) Expunge this abombination.
-          // HACK:  Bison 3.0.2 is stupid and ugly and doesn't support move semantics
-          //        with the `lalr1.cc` skeleton and that makes me very mad.
-          //        Thankfully (or not) two can play stupid games:
-          //          Behold! std::auto_ptr 2: The Revengening
-          // NOTE:  Bison 3.2 came out in 2019. `std::unique_ptr` appeared in C++11.
-          //        How timely.
-          // NOTE:  There are specialisations wrappers that'll allow us to (almost)
-          //        transparently remove `Mov` once we switch to Bison 3.2+.
-
-          template<typename A>
-          struct Mov {
-            mutable A value;
-
-            Mov() = default;
-            Mov(Mov&&) = default;
-            template<typename B>
-            Mov(B value) : value(std::move(value)) {}
-
-            // CRIMES AGAINST COMPUTING HAPPENS HERE
-            // HACK: Pretend you can copy it, but actually move it. Keeps Bison 3.0.2 happy.
-            Mov(const Mov& x) : value(std::move(x.value)) {}
-            Mov& operator=(Mov x) { value = std::move(x.value); return *this; }
-            // detach/convert implicitly.
-            operator A() { return std::move(value); }
-
-            // support ptr-like behaviour
-            A* operator->() { return &value; }
-            A operator*() { return std::move(value); }
-          };
-
-          template<typename A>
-          A unwrap(Mov<A> x) { return *x; }
-
-          template<typename A>
-          A unwrap(A x) { return x; }
-
-          template<typename A>
-          struct Mov<Own<A>> {
-            mutable Own<A> value;
-
-            Mov() = default;
-            Mov(Mov&&) = default;
-            template<typename B>
-            Mov(B value) : value(std::move(value)) {}
-
-            // CRIMES AGAINST COMPUTING HAPPENS HERE
-            // HACK: Pretend you can copy it, but actually move it. Keeps Bison 3.0.2 happy.
-            Mov(const Mov& x) : value(std::move(x.value)) {}
-            Mov& operator=(Mov x) { value = std::move(x.value); return *this; }
-            // detach/convert implicitly.
-            operator Own<A>() { return std::move(value); }
-            Own<A> operator*() { return std::move(value); }
-
-            // support ptr-like behaviour
-            A* operator->() { return value.get(); }
-          };
-
-          template<typename A>
-          struct Mov<std::vector<A>> {
-            mutable std::vector<A> value;
-
-            Mov() = default;
-            Mov(Mov&&) = default;
-            template<typename B>
-            Mov(B value) : value(std::move(value)) {}
-
-            // CRIMES AGAINST COMPUTING HAPPENS HERE
-            // HACK: Pretend you can copy it, but actually move it. Keeps Bison 3.0.2 happy.
-            Mov(const Mov& x) : value(std::move(x.value)) {}
-            Mov& operator=(Mov x) { value = std::move(x.value); return *this; }
-            // detach/convert implicitly.
-            operator std::vector<A>() { return std::move(value); }
-            auto operator*() {
-              std::vector<decltype(unwrap(std::declval<A>()))> ys;
-              for (auto&& x : value) ys.push_back(unwrap(std::move(x)));
-              return ys;
-            }
-
-            // basic ops
-            using iterator = typename std::vector<A>::iterator;
-            typename std::vector<A>::value_type& operator[](size_t i) { return value[i]; }
-            iterator begin() { return value.begin(); }
-            iterator end() { return value.end(); }
-            void push_back(A x) { value.push_back(std::move(x)); }
-            size_t size() const { return value.size(); }
-            bool empty() const { return value.empty(); }
-          };
-        }
-
-        template<typename A>
-        parser::Mov<A> clone(const parser::Mov<A>& x) { return clone(x.value); }
-    }
 
     using namespace souffle::parser;
 
@@ -330,7 +237,7 @@
 %type <Mov<Own<ast::ExecutionPlan>>>           exec_plan
 %type <Mov<Own<ast::ExecutionPlan>>>           exec_plan_list
 %type <Mov<Own<ast::Clause>>>                  fact
-%type <Mov<std::vector<TypeAttribute>>>        functor_arg_type_list
+%type <Mov<VecOwn<ast::Attribute>>>            functor_arg_type_list
 %type <Mov<std::string>>                       functor_built_in
 %type <Mov<Own<ast::FunctorDeclaration>>>      functor_decl
 %type <Mov<VecOwn<ast::Atom>>>                 head
@@ -345,12 +252,12 @@
 %type <Mov<VecOwn<ast::Attribute>>>            non_empty_attributes
 %type <Mov<std::vector<std::string>>>          non_empty_variables
 %type <Mov<ast::ExecutionOrder::ExecOrder>>    non_empty_exec_order_list
-%type <Mov<std::vector<TypeAttribute>>>        non_empty_functor_arg_type_list
+%type <Mov<VecOwn<ast::Attribute>>>            non_empty_functor_arg_type_list
+%type <Mov<Own<ast::Attribute>>>               functor_attribute;
 %type <Mov<std::vector<std::pair
             <std::string, std::string>>>>      non_empty_key_value_pairs
 %type <Mov<VecOwn<ast::Relation>>>             non_empty_relation_list
 %type <Mov<Own<ast::Pragma>>>                  pragma
-%type <TypeAttribute>                          predefined_type
 %type <Mov<VecOwn<ast::Attribute>>>            record_type_list
 %type <Mov<VecOwn<ast::Relation>>>             relation_decl
 %type <std::set<RelationTag>>                  relation_tags
@@ -889,34 +796,22 @@ comp_init : INSTANTIATE IDENT EQUALS comp_type { $$ = mk<ast::ComponentInit>($ID
 
 /* Functor declaration */
 functor_decl
-  : FUNCTOR IDENT LPAREN functor_arg_type_list[args] RPAREN COLON predefined_type
-    { $$ = mk<ast::FunctorDeclaration>($IDENT, $args, $predefined_type, false, @$); }
-  | FUNCTOR IDENT LPAREN functor_arg_type_list[args] RPAREN COLON predefined_type STATEFUL
-    { $$ = mk<ast::FunctorDeclaration>($IDENT, $args, $predefined_type, true, @$); }
+  : FUNCTOR IDENT LPAREN functor_arg_type_list[args] RPAREN COLON identifier
+    { $$ = mk<ast::FunctorDeclaration>($IDENT, $args, mk<ast::Attribute>("return_type", $identifier, @identifier), false, @$); }
+  | FUNCTOR IDENT LPAREN functor_arg_type_list[args] RPAREN COLON identifier STATEFUL
+    { $$ = mk<ast::FunctorDeclaration>($IDENT, $args, mk<ast::Attribute>("return_type", $identifier, @identifier), true, @$); }
   ;
 
 /* Functor argument list type */
 functor_arg_type_list : %empty { } | non_empty_functor_arg_type_list { $$ = $1; };
 non_empty_functor_arg_type_list
-  :                                        predefined_type {          $$.push_back($predefined_type); }
-  | non_empty_functor_arg_type_list COMMA  predefined_type { $$ = $1; $$.push_back($predefined_type); }
+  :                                        functor_attribute {          $$.push_back($functor_attribute); }
+  | non_empty_functor_arg_type_list COMMA  functor_attribute { $$ = $1; $$.push_back($functor_attribute); }
   ;
 
-/* Predefined type */
-predefined_type
-  : IDENT {
-        if ($IDENT == "number") {
-            $$ = TypeAttribute::Signed;
-        } else if ($IDENT == "symbol") {
-            $$ = TypeAttribute::Symbol;
-        } else if ($IDENT == "float") {
-            $$ = TypeAttribute::Float;
-        } else if ($IDENT == "unsigned") {
-            $$ = TypeAttribute::Unsigned;
-        } else {
-            driver.error(@IDENT, "[number | symbol | float | unsigned] identifier expected");
-        }
-    }
+functor_attribute
+  : identifier[type] { $$ = mk<ast::Attribute>("", $type, @type); }
+  | IDENT[name] COLON identifier[type] { $$ = mk<ast::Attribute>($name, $type, @type); }
   ;
 
 /**

@@ -25,7 +25,6 @@
 #include "ram/BinRelationStatement.h"
 #include "ram/Break.h"
 #include "ram/Call.h"
-#include "ram/Choice.h"
 #include "ram/Clear.h"
 #include "ram/Condition.h"
 #include "ram/Conjunction.h"
@@ -39,12 +38,14 @@
 #include "ram/False.h"
 #include "ram/Filter.h"
 #include "ram/FloatConstant.h"
-#include "ram/GuardedProject.h"
+#include "ram/GuardedInsert.h"
 #include "ram/IO.h"
+#include "ram/IfExists.h"
 #include "ram/IndexAggregate.h"
-#include "ram/IndexChoice.h"
+#include "ram/IndexIfExists.h"
 #include "ram/IndexOperation.h"
 #include "ram/IndexScan.h"
+#include "ram/Insert.h"
 #include "ram/IntrinsicOperator.h"
 #include "ram/ListStatement.h"
 #include "ram/LogRelationTimer.h"
@@ -60,13 +61,12 @@
 #include "ram/PackRecord.h"
 #include "ram/Parallel.h"
 #include "ram/ParallelAggregate.h"
-#include "ram/ParallelChoice.h"
+#include "ram/ParallelIfExists.h"
 #include "ram/ParallelIndexAggregate.h"
-#include "ram/ParallelIndexChoice.h"
+#include "ram/ParallelIndexIfExists.h"
 #include "ram/ParallelIndexScan.h"
 #include "ram/ParallelScan.h"
 #include "ram/Program.h"
-#include "ram/Project.h"
 #include "ram/ProvenanceExistenceCheck.h"
 #include "ram/Query.h"
 #include "ram/Relation.h"
@@ -140,8 +140,8 @@ struct Visitor : public souffle::Visitor<R, NodeType, Params...> {
         // Operations
         SOUFFLE_VISITOR_FORWARD(Filter);
         SOUFFLE_VISITOR_FORWARD(Break);
-        SOUFFLE_VISITOR_FORWARD(GuardedProject);
-        SOUFFLE_VISITOR_FORWARD(Project);
+        SOUFFLE_VISITOR_FORWARD(GuardedInsert);
+        SOUFFLE_VISITOR_FORWARD(Insert);
         SOUFFLE_VISITOR_FORWARD(SubroutineReturn);
         SOUFFLE_VISITOR_FORWARD(UnpackRecord);
         SOUFFLE_VISITOR_FORWARD(NestedIntrinsicOperator);
@@ -149,10 +149,10 @@ struct Visitor : public souffle::Visitor<R, NodeType, Params...> {
         SOUFFLE_VISITOR_FORWARD(Scan);
         SOUFFLE_VISITOR_FORWARD(ParallelIndexScan);
         SOUFFLE_VISITOR_FORWARD(IndexScan);
-        SOUFFLE_VISITOR_FORWARD(ParallelChoice);
-        SOUFFLE_VISITOR_FORWARD(Choice);
-        SOUFFLE_VISITOR_FORWARD(ParallelIndexChoice);
-        SOUFFLE_VISITOR_FORWARD(IndexChoice);
+        SOUFFLE_VISITOR_FORWARD(ParallelIfExists);
+        SOUFFLE_VISITOR_FORWARD(IfExists);
+        SOUFFLE_VISITOR_FORWARD(ParallelIndexIfExists);
+        SOUFFLE_VISITOR_FORWARD(IndexIfExists);
         SOUFFLE_VISITOR_FORWARD(ParallelAggregate);
         SOUFFLE_VISITOR_FORWARD(Aggregate);
         SOUFFLE_VISITOR_FORWARD(ParallelIndexAggregate);
@@ -208,8 +208,8 @@ protected:
     SOUFFLE_VISITOR_LINK(Statement, Node);
 
     // -- operations --
-    SOUFFLE_VISITOR_LINK(GuardedProject, Project);
-    SOUFFLE_VISITOR_LINK(Project, Operation);
+    SOUFFLE_VISITOR_LINK(GuardedInsert, Insert);
+    SOUFFLE_VISITOR_LINK(Insert, Operation);
     SOUFFLE_VISITOR_LINK(SubroutineReturn, Operation);
     SOUFFLE_VISITOR_LINK(UnpackRecord, TupleOperation);
     SOUFFLE_VISITOR_LINK(NestedIntrinsicOperator, TupleOperation)
@@ -217,10 +217,10 @@ protected:
     SOUFFLE_VISITOR_LINK(ParallelScan, Scan);
     SOUFFLE_VISITOR_LINK(IndexScan, IndexOperation);
     SOUFFLE_VISITOR_LINK(ParallelIndexScan, IndexScan);
-    SOUFFLE_VISITOR_LINK(Choice, RelationOperation);
-    SOUFFLE_VISITOR_LINK(ParallelChoice, Choice);
-    SOUFFLE_VISITOR_LINK(IndexChoice, IndexOperation);
-    SOUFFLE_VISITOR_LINK(ParallelIndexChoice, IndexChoice);
+    SOUFFLE_VISITOR_LINK(IfExists, RelationOperation);
+    SOUFFLE_VISITOR_LINK(ParallelIfExists, IfExists);
+    SOUFFLE_VISITOR_LINK(IndexIfExists, IndexOperation);
+    SOUFFLE_VISITOR_LINK(ParallelIndexIfExists, IndexIfExists);
     SOUFFLE_VISITOR_LINK(RelationOperation, TupleOperation);
     SOUFFLE_VISITOR_LINK(Aggregate, RelationOperation);
     SOUFFLE_VISITOR_LINK(ParallelAggregate, Aggregate);

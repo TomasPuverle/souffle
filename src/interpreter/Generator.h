@@ -28,7 +28,6 @@
 #include "ram/AutoIncrement.h"
 #include "ram/Break.h"
 #include "ram/Call.h"
-#include "ram/Choice.h"
 #include "ram/Clear.h"
 #include "ram/Condition.h"
 #include "ram/Conjunction.h"
@@ -42,10 +41,12 @@
 #include "ram/False.h"
 #include "ram/Filter.h"
 #include "ram/IO.h"
+#include "ram/IfExists.h"
 #include "ram/IndexAggregate.h"
-#include "ram/IndexChoice.h"
+#include "ram/IndexIfExists.h"
 #include "ram/IndexOperation.h"
 #include "ram/IndexScan.h"
+#include "ram/Insert.h"
 #include "ram/IntrinsicOperator.h"
 #include "ram/LogRelationTimer.h"
 #include "ram/LogSize.h"
@@ -60,13 +61,12 @@
 #include "ram/PackRecord.h"
 #include "ram/Parallel.h"
 #include "ram/ParallelAggregate.h"
-#include "ram/ParallelChoice.h"
+#include "ram/ParallelIfExists.h"
 #include "ram/ParallelIndexAggregate.h"
-#include "ram/ParallelIndexChoice.h"
+#include "ram/ParallelIndexIfExists.h"
 #include "ram/ParallelIndexScan.h"
 #include "ram/ParallelScan.h"
 #include "ram/Program.h"
-#include "ram/Project.h"
 #include "ram/ProvenanceExistenceCheck.h"
 #include "ram/Query.h"
 #include "ram/Relation.h"
@@ -174,14 +174,14 @@ public:
 
     NodePtr visit_(type_identity<ram::ParallelIndexScan>, const ram::ParallelIndexScan& piscan) override;
 
-    NodePtr visit_(type_identity<ram::Choice>, const ram::Choice& choice) override;
+    NodePtr visit_(type_identity<ram::IfExists>, const ram::IfExists& ifexists) override;
 
-    NodePtr visit_(type_identity<ram::ParallelChoice>, const ram::ParallelChoice& pChoice) override;
+    NodePtr visit_(type_identity<ram::ParallelIfExists>, const ram::ParallelIfExists& pIfExists) override;
 
-    NodePtr visit_(type_identity<ram::IndexChoice>, const ram::IndexChoice& iChoice) override;
+    NodePtr visit_(type_identity<ram::IndexIfExists>, const ram::IndexIfExists& iIfExists) override;
 
     NodePtr visit_(
-            type_identity<ram::ParallelIndexChoice>, const ram::ParallelIndexChoice& piChoice) override;
+            type_identity<ram::ParallelIndexIfExists>, const ram::ParallelIndexIfExists& piIfExists) override;
 
     NodePtr visit_(type_identity<ram::UnpackRecord>, const ram::UnpackRecord& unpack) override;
 
@@ -198,9 +198,9 @@ public:
 
     NodePtr visit_(type_identity<ram::Filter>, const ram::Filter& filter) override;
 
-    NodePtr visit_(type_identity<ram::GuardedProject>, const ram::GuardedProject& guardedPorject) override;
+    NodePtr visit_(type_identity<ram::GuardedInsert>, const ram::GuardedInsert& guardedPorject) override;
 
-    NodePtr visit_(type_identity<ram::Project>, const ram::Project& project) override;
+    NodePtr visit_(type_identity<ram::Insert>, const ram::Insert& insert) override;
 
     NodePtr visit_(type_identity<ram::SubroutineReturn>, const ram::SubroutineReturn& ret) override;
 
@@ -250,28 +250,29 @@ private:
          * This is usually used when an operation implicitly introduce a runtime tuple, such as UnpackRecord
          * NestedIntrinsicOperator, and nested operation in Aggregate.
          * */
-        void addNewTuple(size_t tupleId, size_t arity);
+        void addNewTuple(std::size_t tupleId, std::size_t arity);
 
         /** @brief Bind tuple with the default order.
          *
-         * This is usually used for tuples created by non-indexed operations. Such as Scan, Aggregate, Choice.
+         * This is usually used for tuples created by non-indexed operations. Such as Scan, Aggregate,
+         * IfExists.
          * */
         template <class RamNode>
-        void addTupleWithDefaultOrder(size_t tupleId, const RamNode& node);
+        void addTupleWithDefaultOrder(std::size_t tupleId, const RamNode& node);
 
         /** @brief Bind tuple with the corresponding index order.
          *
          * This is usually used for tuples created by indexed operations. Such as IndexScan, IndexAggregate,
-         * IndexChoice.
+         * IndexIfExists.
          * */
         template <class RamNode>
-        void addTupleWithIndexOrder(size_t tupleId, const RamNode& node);
+        void addTupleWithIndexOrder(std::size_t tupleId, const RamNode& node);
 
         /** @brief Map the decoded order of elementId based on current context */
-        size_t mapOrder(size_t tupleId, size_t elementId) const;
+        std::size_t mapOrder(std::size_t tupleId, std::size_t elementId) const;
 
     private:
-        void insertOrder(size_t tupleId, const Order& order);
+        void insertOrder(std::size_t tupleId, const Order& order);
         std::vector<Order> tupleOrders;
         NodeGenerator& generator;
     };
@@ -281,29 +282,29 @@ private:
     void newQueryBlock();
 
     /** @brief Get a valid relation id for encoding */
-    size_t getNewRelId();
+    std::size_t getNewRelId();
 
     /** @brief Get a valid view id for encoding */
-    size_t getNextViewId();
+    std::size_t getNextViewId();
 
     /** @brief Return operation index id from the result of indexAnalysis */
     template <class RamNode>
-    size_t encodeIndexPos(RamNode& node);
+    std::size_t encodeIndexPos(RamNode& node);
 
     /** @brief Encode and return the View id of an operation. */
-    size_t encodeView(const ram::Node* node);
+    std::size_t encodeView(const ram::Node* node);
 
     /** @brief get arity of relation */
     const ram::Relation& lookup(const std::string& relName);
 
     /** @brief get arity of relation */
-    size_t getArity(const std::string& relName);
+    std::size_t getArity(const std::string& relName);
 
     /** @brief Encode and create the relation, return the relation id */
-    size_t encodeRelation(const std::string& relName);
+    std::size_t encodeRelation(const std::string& relName);
 
     /* @brief Get a relation instance from engine */
-    RelationHandle* getRelationHandle(const size_t idx);
+    RelationHandle* getRelationHandle(const std::size_t idx);
 
     /**
      * Return true if the given operation requires a view.
@@ -327,27 +328,27 @@ private:
     SuperInstruction getExistenceSuperInstInfo(const ram::AbstractExistenceCheck& abstractExist);
 
     /**
-     * @brief Encode and return the super-instruction information about a project operation
+     * @brief Encode and return the super-instruction information about a insert operation
      *
-     * No reordering needed for projection as project can have more then one target indexes and reordering can
+     * No reordering needed for insertion as insert can have more then one target indexes and reordering can
      * only be done during runtime.
      */
-    SuperInstruction getProjectSuperInstInfo(const ram::Project& exist);
+    SuperInstruction getInsertSuperInstInfo(const ram::Insert& exist);
 
     /** Environment encoding, store a mapping from ram::Node to its operation index id. */
-    std::unordered_map<const ram::Node*, size_t> indexTable;
+    std::unordered_map<const ram::Node*, std::size_t> indexTable;
     /** Points to the current viewContext during the generation.
      * It is used to passing viewContext between parent query and its nested parallel operation.
      * As parallel operation requires its own view information. */
     std::shared_ptr<ViewContext> parentQueryViewContext = nullptr;
     /** Next available location to encode View */
-    size_t viewId = 0;
+    std::size_t viewId = 0;
     /** Next available location to encode a relation */
-    size_t relId = 0;
+    std::size_t relId = 0;
     /** Environment encoding, store a mapping from ram::Node to its View id. */
-    std::unordered_map<const ram::Node*, size_t> viewTable;
+    std::unordered_map<const ram::Node*, std::size_t> viewTable;
     /** Environment encoding, store a mapping from ram::Relation to its id */
-    std::unordered_map<std::string, size_t> relTable;
+    std::unordered_map<std::string, std::size_t> relTable;
     /** name / relation mapping */
     std::unordered_map<std::string, const ram::Relation*> relationMap;
     /** ordering context */

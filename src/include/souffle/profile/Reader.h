@@ -74,8 +74,8 @@ public:
             auto* level = as<SizeEntry>(directory.readDirectoryEntry(key)->readEntry("level"));
             auto* frequency = as<SizeEntry>(directory.readDirectoryEntry(key)->readEntry("num-tuples"));
             // Handle older logs
-            size_t intFreq = frequency == nullptr ? 0 : frequency->getSize();
-            size_t intLevel = level == nullptr ? 0 : level->getSize();
+            std::size_t intFreq = frequency == nullptr ? 0 : frequency->getSize();
+            std::size_t intLevel = level == nullptr ? 0 : level->getSize();
             rule.addAtomFrequency(clause, key, intLevel, intFreq);
         }
     }
@@ -303,6 +303,7 @@ public:
             if (startTimeEntry != nullptr) {
                 run->setStarttime(startTimeEntry->getTime());
                 run->setEndtime(std::chrono::duration_cast<microseconds>(now().time_since_epoch()));
+                loaded = true;
             }
         } else {
             run->setStarttime(programDuration->getStart());
@@ -312,7 +313,8 @@ public:
 
         auto relations = as<DirectoryEntry>(db.lookupEntry({"program", "relation"}));
         if (relations == nullptr) {
-            // Souffle hasn't generated any profiling information yet.
+            // Souffle hasn't generated any profiling information yet
+            // or program is empty.
             return;
         }
         for (const auto& cur : relations->getKeys()) {

@@ -297,7 +297,7 @@ Own<Clause> ResolveAliasesTransformer::resolveAliases(const Clause& clause) {
             assert(lhs_args.size() == rhs_args.size() && "Record lengths not equal");
 
             // create new equalities
-            for (size_t i = 0; i < lhs_args.size(); i++) {
+            for (std::size_t i = 0; i < lhs_args.size(); i++) {
                 equations.push_back(Equation(lhs_args[i], rhs_args[i]));
             }
 
@@ -393,7 +393,7 @@ Own<Clause> ResolveAliasesTransformer::removeComplexTermsInAtoms(const Clause& c
     for (const Atom* atom : atoms) {
         for (const Argument* arg : atom->getArguments()) {
             // ignore if not a functor
-            if (!isA<Functor>(arg)) {
+            if (!isA<Functor>(arg) && !isA<TypeCast>(arg)) {
                 continue;
             }
 

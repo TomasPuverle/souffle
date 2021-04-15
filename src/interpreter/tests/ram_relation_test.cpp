@@ -21,8 +21,8 @@
 #include "interpreter/Engine.h"
 #include "ram/Expression.h"
 #include "ram/IO.h"
+#include "ram/Insert.h"
 #include "ram/Program.h"
-#include "ram/Project.h"
 #include "ram/Query.h"
 #include "ram/Relation.h"
 #include "ram/Sequence.h"
@@ -60,7 +60,7 @@ const std::string testInterpreterStore(
         std::vector<std::string> attribs, std::vector<std::string> attribsTypes, VecOwn<Expression> exprs) {
     Global::config().set("jobs", "1");
 
-    const size_t arity = attribs.size();
+    const std::size_t arity = attribs.size();
 
     VecOwn<ram::Relation> rels;
     Own<ram::Relation> myrel =
@@ -76,7 +76,7 @@ const std::string testInterpreterStore(
     std::map<std::string, std::string> ioDirs = std::map<std::string, std::string>(dirs);
 
     Own<ram::Statement> main = mk<ram::Sequence>(
-            mk<ram::Query>(mk<ram::Project>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
+            mk<ram::Query>(mk<ram::Insert>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
 
     rels.push_back(std::move(myrel));
     std::map<std::string, Own<Statement>> subs;
@@ -125,7 +125,7 @@ TEST(IO_store, Signed) {
 
     // a0 a1 a2...
     std::vector<std::string> attribs(RANDOM_TESTS, "a");
-    for (size_t i = 0; i < RANDOM_TESTS; ++i) {
+    for (std::size_t i = 0; i < RANDOM_TESTS; ++i) {
         attribs[i].append(std::to_string(i));
     }
 
@@ -145,7 +145,7 @@ TEST(IO_store, Signed) {
              << "\n"
              << randomNumbers[0];
 
-    for (size_t i = 1; i < randomNumbers.size(); ++i) {
+    for (std::size_t i = 1; i < randomNumbers.size(); ++i) {
         expected << "\t" << randomNumbers[i];
     }
     expected << "\n"
@@ -161,7 +161,7 @@ TEST(IO_store, Float) {
 
     // a0 a1 a2...
     std::vector<std::string> attribs(RANDOM_TESTS, "a");
-    for (size_t i = 0; i < RANDOM_TESTS; ++i) {
+    for (std::size_t i = 0; i < RANDOM_TESTS; ++i) {
         attribs[i].append(std::to_string(i));
     }
 
@@ -183,7 +183,7 @@ TEST(IO_store, Float) {
              << "\n"
              << randomNumbers[0];
 
-    for (size_t i = 1; i < randomNumbers.size(); ++i) {
+    for (std::size_t i = 1; i < randomNumbers.size(); ++i) {
         expected << "\t" << randomNumbers[i];
     }
     expected << "\n"
@@ -199,7 +199,7 @@ TEST(IO_store, Unsigned) {
 
     // a0 a1 a2...
     std::vector<std::string> attribs(RANDOM_TESTS, "a");
-    for (size_t i = 0; i < RANDOM_TESTS; ++i) {
+    for (std::size_t i = 0; i < RANDOM_TESTS; ++i) {
         attribs[i].append(std::to_string(i));
     }
 
@@ -219,7 +219,7 @@ TEST(IO_store, Unsigned) {
              << "\n"
              << randomNumbers[0];
 
-    for (size_t i = 1; i < randomNumbers.size(); ++i) {
+    for (std::size_t i = 1; i < randomNumbers.size(); ++i) {
         expected << "\t" << randomNumbers[i];
     }
     expected << "\n"
@@ -241,7 +241,7 @@ TEST(IO_store, SignedChangedDelimiter) {
 
     // a0 a1 a2...
     std::vector<std::string> attribs(RANDOM_TESTS, "a");
-    for (size_t i = 0; i < RANDOM_TESTS; ++i) {
+    for (std::size_t i = 0; i < RANDOM_TESTS; ++i) {
         attribs[i].append(std::to_string(i));
     }
 
@@ -266,7 +266,7 @@ TEST(IO_store, SignedChangedDelimiter) {
     }
 
     Own<ram::Statement> main = mk<ram::Sequence>(
-            mk<ram::Query>(mk<ram::Project>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
+            mk<ram::Query>(mk<ram::Insert>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
 
     rels.push_back(std::move(myrel));
     std::map<std::string, Own<Statement>> subs;
@@ -297,7 +297,7 @@ TEST(IO_store, SignedChangedDelimiter) {
              << "\n"
              << randomNumbers[0];
 
-    for (size_t i = 1; i < randomNumbers.size(); ++i) {
+    for (std::size_t i = 1; i < randomNumbers.size(); ++i) {
         expected << delimiter << randomNumbers[i];
     }
     expected << "\n"
@@ -339,7 +339,7 @@ TEST(IO_store, MixedTypes) {
     exprs.push_back(mk<ram::StringConstant>("meow"));
 
     Own<ram::Statement> main = mk<ram::Sequence>(
-            mk<ram::Query>(mk<ram::Project>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
+            mk<ram::Query>(mk<ram::Insert>("test", std::move(exprs))), mk<ram::IO>("test", ioDirs));
 
     rels.push_back(std::move(myrel));
     std::map<std::string, Own<Statement>> subs;

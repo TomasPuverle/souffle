@@ -24,7 +24,6 @@
 #include "ram/AutoIncrement.h"
 #include "ram/Break.h"
 #include "ram/Call.h"
-#include "ram/Choice.h"
 #include "ram/Clear.h"
 #include "ram/Condition.h"
 #include "ram/Conjunction.h"
@@ -39,9 +38,11 @@
 #include "ram/Filter.h"
 #include "ram/FloatConstant.h"
 #include "ram/IO.h"
+#include "ram/IfExists.h"
 #include "ram/IndexAggregate.h"
-#include "ram/IndexChoice.h"
+#include "ram/IndexIfExists.h"
 #include "ram/IndexScan.h"
+#include "ram/Insert.h"
 #include "ram/IntrinsicOperator.h"
 #include "ram/LogRelationTimer.h"
 #include "ram/LogSize.h"
@@ -55,13 +56,12 @@
 #include "ram/PackRecord.h"
 #include "ram/Parallel.h"
 #include "ram/ParallelAggregate.h"
-#include "ram/ParallelChoice.h"
+#include "ram/ParallelIfExists.h"
 #include "ram/ParallelIndexAggregate.h"
-#include "ram/ParallelIndexChoice.h"
+#include "ram/ParallelIndexIfExists.h"
 #include "ram/ParallelIndexScan.h"
 #include "ram/ParallelScan.h"
 #include "ram/Program.h"
-#include "ram/Project.h"
 #include "ram/ProvenanceExistenceCheck.h"
 #include "ram/Query.h"
 #include "ram/Relation.h"
@@ -130,7 +130,7 @@ unsigned Synthesiser::lookupFreqIdx(const std::string& txt) {
 }
 
 /** Lookup frequency counter */
-size_t Synthesiser::lookupReadIdx(const std::string& txt) {
+std::size_t Synthesiser::lookupReadIdx(const std::string& txt) {
     std::string modifiedTxt = txt;
     std::replace(modifiedTxt.begin(), modifiedTxt.end(), '-', '.');
     static unsigned counter;
@@ -213,8 +213,8 @@ std::set<const ram::Relation*> Synthesiser::getReferencedRelations(const Operati
             res.insert(lookup(exists->getRelation()));
         } else if (auto provExists = as<ProvenanceExistenceCheck>(node)) {
             res.insert(lookup(provExists->getRelation()));
-        } else if (auto project = as<Project>(node)) {
-            res.insert(lookup(project->getRelation()));
+        } else if (auto insert = as<Insert>(node)) {
+            res.insert(lookup(insert->getRelation()));
         }
     });
     return res;
@@ -269,13 +269,13 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             std::stringstream high;
 
             // making this distinction for provenance
-            size_t realArity = rel.getArity();
-            size_t arity = rangePatternLower.size();
+            std::size_t realArity = rel.getArity();
+            std::size_t arity = rangePatternLower.size();
 
             low << "Tuple<RamDomain," << realArity << ">{{";
             high << "Tuple<RamDomain," << realArity << ">{{";
 
-            for (size_t column = 0; column < arity; column++) {
+            for (std::size_t column = 0; column < arity; column++) {
                 std::string supremum;
                 std::string infimum;
 
@@ -699,12 +699,12 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(type_identity<Choice>, const Choice& choice, std::ostream& out) override {
-            const auto* rel = synthesiser.lookup(choice.getRelation());
+        void visit_(type_identity<IfExists>, const IfExists& ifexists, std::ostream& out) override {
+            const auto* rel = synthesiser.lookup(ifexists.getRelation());
             auto relName = synthesiser.getRelationName(rel);
-            auto identifier = choice.getTupleId();
+            auto identifier = ifexists.getTupleId();
 
-            assert(rel->getArity() > 0 && "AstToRamTranslator failed/no choice for nullaries");
+            assert(rel->getArity() > 0 && "AstToRamTranslator failed/no ifexists for nullaries");
 
             PRINT_BEGIN_COMMENT(out);
 
@@ -712,11 +712,11 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
                 << "*" << relName << ") {\n";
             out << "if( ";
 
-            dispatch(choice.getCondition(), out);
+            dispatch(ifexists.getCondition(), out);
 
             out << ") {\n";
 
-            visit_(type_identity<TupleOperation>(), choice, out);
+            visit_(type_identity<TupleOperation>(), ifexists, out);
 
             out << "break;\n";
             out << "}\n";
@@ -725,14 +725,14 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(
-                type_identity<ParallelChoice>, const ParallelChoice& pchoice, std::ostream& out) override {
-            const auto* rel = synthesiser.lookup(pchoice.getRelation());
+        void visit_(type_identity<ParallelIfExists>, const ParallelIfExists& pifexists,
+                std::ostream& out) override {
+            const auto* rel = synthesiser.lookup(pifexists.getRelation());
             auto relName = synthesiser.getRelationName(rel);
 
-            assert(pchoice.getTupleId() == 0 && "not outer-most loop");
+            assert(pifexists.getTupleId() == 0 && "not outer-most loop");
 
-            assert(rel->getArity() > 0 && "AstToRamTranslator failed/no parallel choice for nullaries");
+            assert(rel->getArity() > 0 && "AstToRamTranslator failed/no parallel ifexists for nullaries");
 
             assert(!preambleIssued && "only first loop can be made parallel");
             preambleIssued = true;
@@ -747,11 +747,11 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             out << "for(const auto& env0 : *it) {\n";
             out << "if( ";
 
-            dispatch(pchoice.getCondition(), out);
+            dispatch(pifexists.getCondition(), out);
 
             out << ") {\n";
 
-            visit_(type_identity<TupleOperation>(), pchoice, out);
+            visit_(type_identity<TupleOperation>(), pifexists, out);
 
             out << "break;\n";
             out << "}\n";
@@ -829,15 +829,16 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(type_identity<IndexChoice>, const IndexChoice& ichoice, std::ostream& out) override {
+        void visit_(
+                type_identity<IndexIfExists>, const IndexIfExists& iifexists, std::ostream& out) override {
             PRINT_BEGIN_COMMENT(out);
-            const auto* rel = synthesiser.lookup(ichoice.getRelation());
+            const auto* rel = synthesiser.lookup(iifexists.getRelation());
             auto relName = synthesiser.getRelationName(rel);
-            auto identifier = ichoice.getTupleId();
+            auto identifier = iifexists.getTupleId();
             auto arity = rel->getArity();
-            const auto& rangePatternLower = ichoice.getRangePattern().first;
-            const auto& rangePatternUpper = ichoice.getRangePattern().second;
-            auto keys = isa->getSearchSignature(&ichoice);
+            const auto& rangePatternLower = iifexists.getRangePattern().first;
+            const auto& rangePatternUpper = iifexists.getRangePattern().second;
+            auto keys = isa->getSearchSignature(&iifexists);
 
             // check list of keys
             assert(arity > 0 && "AstToRamTranslator failed");
@@ -850,11 +851,11 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             out << "for(const auto& env" << identifier << " : range) {\n";
             out << "if( ";
 
-            dispatch(ichoice.getCondition(), out);
+            dispatch(iifexists.getCondition(), out);
 
             out << ") {\n";
 
-            visit_(type_identity<TupleOperation>(), ichoice, out);
+            visit_(type_identity<TupleOperation>(), iifexists, out);
 
             out << "break;\n";
             out << "}\n";
@@ -863,17 +864,17 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(type_identity<ParallelIndexChoice>, const ParallelIndexChoice& pichoice,
+        void visit_(type_identity<ParallelIndexIfExists>, const ParallelIndexIfExists& piifexists,
                 std::ostream& out) override {
             PRINT_BEGIN_COMMENT(out);
-            const auto* rel = synthesiser.lookup(pichoice.getRelation());
+            const auto* rel = synthesiser.lookup(piifexists.getRelation());
             auto relName = synthesiser.getRelationName(rel);
             auto arity = rel->getArity();
-            const auto& rangePatternLower = pichoice.getRangePattern().first;
-            const auto& rangePatternUpper = pichoice.getRangePattern().second;
-            auto keys = isa->getSearchSignature(&pichoice);
+            const auto& rangePatternLower = piifexists.getRangePattern().first;
+            const auto& rangePatternUpper = piifexists.getRangePattern().second;
+            auto keys = isa->getSearchSignature(&piifexists);
 
-            assert(pichoice.getTupleId() == 0 && "not outer-most loop");
+            assert(piifexists.getTupleId() == 0 && "not outer-most loop");
 
             assert(arity > 0 && "AstToRamTranslator failed");
 
@@ -895,11 +896,11 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             out << "for(const auto& env0 : *it) {\n";
             out << "if( ";
 
-            dispatch(pichoice.getCondition(), out);
+            dispatch(piifexists.getCondition(), out);
 
             out << ") {\n";
 
-            visit_(type_identity<TupleOperation>(), pichoice, out);
+            visit_(type_identity<TupleOperation>(), piifexists, out);
 
             out << "break;\n";
             out << "}\n";
@@ -1632,22 +1633,22 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(type_identity<GuardedProject>, const GuardedProject& guardedProject,
+        void visit_(type_identity<GuardedInsert>, const GuardedInsert& guardedInsert,
                 std::ostream& out) override {
             PRINT_BEGIN_COMMENT(out);
-            const auto* rel = synthesiser.lookup(guardedProject.getRelation());
+            const auto* rel = synthesiser.lookup(guardedInsert.getRelation());
             auto arity = rel->getArity();
             auto relName = synthesiser.getRelationName(rel);
             auto ctxName = "READ_OP_CONTEXT(" + synthesiser.getOpContextName(*rel) + ")";
 
-            auto condition = guardedProject.getCondition();
+            auto condition = guardedInsert.getCondition();
             // guarded conditions
             out << "if( ";
             dispatch(*condition, out);
             out << ") {\n";
 
-            // create projected tuple
-            out << "Tuple<RamDomain," << arity << "> tuple{{" << join(guardedProject.getValues(), ",", rec)
+            // create inserted tuple
+            out << "Tuple<RamDomain," << arity << "> tuple{{" << join(guardedInsert.getValues(), ",", rec)
                 << "}};\n";
 
             // insert tuple
@@ -1660,15 +1661,15 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             PRINT_END_COMMENT(out);
         }
 
-        void visit_(type_identity<Project>, const Project& project, std::ostream& out) override {
+        void visit_(type_identity<Insert>, const Insert& insert, std::ostream& out) override {
             PRINT_BEGIN_COMMENT(out);
-            const auto* rel = synthesiser.lookup(project.getRelation());
+            const auto* rel = synthesiser.lookup(insert.getRelation());
             auto arity = rel->getArity();
             auto relName = synthesiser.getRelationName(rel);
             auto ctxName = "READ_OP_CONTEXT(" + synthesiser.getOpContextName(*rel) + ")";
 
-            // create projected tuple
-            out << "Tuple<RamDomain," << arity << "> tuple{{" << join(project.getValues(), ",", rec)
+            // create inserted tuple
+            out << "Tuple<RamDomain," << arity << "> tuple{{" << join(insert.getValues(), ",", rec)
                 << "}};\n";
 
             // insert tuple
@@ -1722,9 +1723,9 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
     out << ")";                 \
     break
 #define COMPARE_STRING(op)                \
-    out << "(symTable.resolve(";          \
+    out << "(symTable.decode(";           \
     EVAL_CHILD(RamDomain, getLHS);        \
-    out << ") " #op " symTable.resolve("; \
+    out << ") " #op " symTable.decode(";  \
     EVAL_CHILD(RamDomain, getRHS);        \
     out << "))";                          \
     break
@@ -1751,33 +1752,33 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
 
                 // strings
                 case BinaryConstraintOp::MATCH: {
-                    out << "regex_wrapper(symTable.resolve(";
+                    out << "regex_wrapper(symTable.decode(";
                     dispatch(rel.getLHS(), out);
-                    out << "),symTable.resolve(";
+                    out << "),symTable.decode(";
                     dispatch(rel.getRHS(), out);
                     out << "))";
                     break;
                 }
                 case BinaryConstraintOp::NOT_MATCH: {
-                    out << "!regex_wrapper(symTable.resolve(";
+                    out << "!regex_wrapper(symTable.decode(";
                     dispatch(rel.getLHS(), out);
-                    out << "),symTable.resolve(";
+                    out << "),symTable.decode(";
                     dispatch(rel.getRHS(), out);
                     out << "))";
                     break;
                 }
                 case BinaryConstraintOp::CONTAINS: {
-                    out << "(symTable.resolve(";
+                    out << "(symTable.decode(";
                     dispatch(rel.getRHS(), out);
-                    out << ").find(symTable.resolve(";
+                    out << ").find(symTable.decode(";
                     dispatch(rel.getLHS(), out);
                     out << ")) != std::string::npos)";
                     break;
                 }
                 case BinaryConstraintOp::NOT_CONTAINS: {
-                    out << "(symTable.resolve(";
+                    out << "(symTable.decode(";
                     dispatch(rel.getRHS(), out);
-                    out << ").find(symTable.resolve(";
+                    out << ").find(symTable.decode(";
                     dispatch(rel.getLHS(), out);
                     out << ")) == std::string::npos)";
                     break;
@@ -1863,14 +1864,14 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             out << "_" << isa->getSearchSignature(&provExists);
 
             // parts refers to payload + rule number
-            size_t parts = arity - auxiliaryArity + 1;
+            std::size_t parts = arity - auxiliaryArity + 1;
 
             // make a copy of provExists.getValues() so we can be sure that vals is always the same vector
             // since provExists.getValues() creates a new vector on the stack each time
             auto vals = provExists.getValues();
 
             // sanity check to ensure that all payload values are specified
-            for (size_t i = 0; i < arity - auxiliaryArity; i++) {
+            for (std::size_t i = 0; i < arity - auxiliaryArity; i++) {
                 assert(!isUndefValue(vals[i]) &&
                         "ProvenanceExistenceCheck should always be specified for payload");
             }
@@ -1883,7 +1884,7 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
             rangeBounds.second.seekp(-2, std::ios_base::end);
 
             // extra bounds for provenance height annotations
-            for (size_t i = 0; i < auxiliaryArity - 2; i++) {
+            for (std::size_t i = 0; i < auxiliaryArity - 2; i++) {
                 rangeBounds.first << ",ramBitCast<RamDomain, RamSigned>(MIN_RAM_SIGNED)";
                 rangeBounds.second << ",ramBitCast<RamDomain, RamSigned>(MAX_RAM_SIGNED)";
             }
@@ -1945,9 +1946,9 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
                 type_identity<IntrinsicOperator>, const IntrinsicOperator& op, std::ostream& out) override {
 #define MINMAX_SYMBOL(op)                   \
     {                                       \
-        out << "symTable.lookup(" #op "({"; \
+        out << "symTable.encode(" #op "({"; \
         for (auto& cur : args) {            \
-            out << "symTable.resolve(";     \
+            out << "symTable.decode(";      \
             dispatch(*cur, out);            \
             out << "), ";                   \
         }                                   \
@@ -2031,13 +2032,13 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
 
 #define CONV_TO_STRING(opcode, ty)                \
     case FunctorOp::opcode: {                     \
-        out << "symTable.lookup(std::to_string("; \
-        dispatch(*args[0], out);                      \
+        out << "symTable.encode(std::to_string("; \
+        dispatch(*args[0], out);                  \
         out << "))";                              \
     } break;
 #define CONV_FROM_STRING(opcode, ty)                                            \
     case FunctorOp::opcode: {                                                   \
-        out << "souffle::evaluator::symbol2numeric<" #ty ">(symTable.resolve("; \
+        out << "souffle::evaluator::symbol2numeric<" #ty ">(symTable.decode(";  \
         dispatch(*args[0], out);                                                \
         out << "))";                                                            \
     } break;
@@ -2052,7 +2053,7 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
                 }
                 // TODO: change the signature of `STRLEN` to return an unsigned?
                 case FunctorOp::STRLEN: {
-                    out << "static_cast<RamSigned>(symTable.resolve(";
+                    out << "static_cast<RamSigned>(symTable.decode(";
                     dispatch(*args[0], out);
                     out << ").size())";
                     break;
@@ -2137,15 +2138,15 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
 
                 // strings
                 case FunctorOp::CAT: {
-                    out << "symTable.lookup(";
-                    size_t i = 0;
+                    out << "symTable.encode(";
+                    std::size_t i = 0;
                     while (i < args.size() - 1) {
-                        out << "symTable.resolve(";
+                        out << "symTable.decode(";
                         dispatch(*args[i], out);
                         out << ") + ";
                         i++;
                     }
-                    out << "symTable.resolve(";
+                    out << "symTable.decode(";
                     dispatch(*args[i], out);
                     out << "))";
                     break;
@@ -2153,8 +2154,8 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
 
                 /** Ternary Functor Operators */
                 case FunctorOp::SUBSTR: {
-                    out << "symTable.lookup(";
-                    out << "substr_wrapper(symTable.resolve(";
+                    out << "symTable.encode(";
+                    out << "substr_wrapper(symTable.decode(";
                     dispatch(*args[0], out);
                     out << "),(";
                     dispatch(*args[1], out);
@@ -2217,11 +2218,11 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
                 const std::vector<TypeAttribute>& argTypes = op.getArgsTypes();
 
                 if (op.getReturnType() == TypeAttribute::Symbol) {
-                    out << "symTable.lookup(";
+                    out << "symTable.encode(";
                 }
                 out << name << "(";
 
-                for (size_t i = 0; i < args.size(); i++) {
+                for (std::size_t i = 0; i < args.size(); i++) {
                     if (i > 0) {
                         out << ",";
                     }
@@ -2242,7 +2243,7 @@ void Synthesiser::emitCode(std::ostream& out, const Statement& stmt) {
                             out << ")";
                             break;
                         case TypeAttribute::Symbol:
-                            out << "symTable.resolve(";
+                            out << "symTable.decode(";
                             dispatch(*args[i], out);
                             out << ").c_str()";
                             break;
@@ -2353,7 +2354,7 @@ void Synthesiser::generateCode(std::ostream& os, const std::string& id, bool& wi
     });
     os << "extern \"C\" {\n";
     for (const auto& f : functors) {
-        //        size_t arity = f.second.length() - 1;
+        //        std::size_t arity = f.second.length() - 1;
         const std::string& name = f.first;
 
         const auto& functorTypes = f.second;
@@ -2376,7 +2377,7 @@ void Synthesiser::generateCode(std::ostream& os, const std::string& id, bool& wi
 
         if (stateful) {
             os << "souffle::RamDomain " << name << "(souffle::SymbolTable *, souffle::RecordTable *";
-            for (size_t i = 0; i < argsTypes.size(); i++) {
+            for (std::size_t i = 0; i < argsTypes.size(); i++) {
                 os << ",souffle::RamDomain";
             }
             os << ");\n";
@@ -2415,7 +2416,8 @@ void Synthesiser::generateCode(std::ostream& os, const std::string& id, bool& wi
 
     // substring wrapper
     os << "private:\n";
-    os << "static inline std::string substr_wrapper(const std::string& str, size_t idx, size_t len) {\n";
+    os << "static inline std::string substr_wrapper(const std::string& str, std::size_t idx, std::size_t "
+          "len) {\n";
     os << "   std::string result; \n";
     os << "   try { result = str.substr(idx,len); } catch(...) { \n";
     os << "     std::cerr << \"warning: wrong index position provided by substr(\\\"\";\n";
@@ -2453,16 +2455,16 @@ void Synthesiser::generateCode(std::ostream& os, const std::string& id, bool& wi
 
     if (Global::config().has("profile")) {
         os << "private:\n";
-        size_t numFreq = 0;
+        std::size_t numFreq = 0;
         visit(prog, [&](const Statement&) { numFreq++; });
-        os << "  size_t freqs[" << numFreq << "]{};\n";
-        size_t numRead = 0;
+        os << "  std::size_t freqs[" << numFreq << "]{};\n";
+        std::size_t numRead = 0;
         for (auto rel : prog.getRelations()) {
             if (!rel->isTemp()) {
                 numRead++;
             }
         }
-        os << "  size_t reads[" << numRead << "]{};\n";
+        os << "  std::size_t reads[" << numRead << "]{};\n";
     }
 
     // print relation definitions
@@ -2562,7 +2564,7 @@ std::string             inputDirectory;
 std::string             outputDirectory;
 SignalHandler*          signalHandler {SignalHandler::instance()};
 std::atomic<RamDomain>  ctr {};
-std::atomic<size_t>     iter {};
+std::atomic<std::size_t>     iter {};
 bool                    performIO = false;
 
 void runFunction(std::string  inputDirectoryArg   = "",
@@ -2592,7 +2594,7 @@ void runFunction(std::string  inputDirectoryArg   = "",
         os << "{\n"
            << R"_(Logger logger("@runtime;", 0);)_" << '\n';
         // Store count of relations
-        size_t relationCount = 0;
+        std::size_t relationCount = 0;
         for (auto rel : prog.getRelations()) {
             if (rel->getName()[0] != '@') {
                 ++relationCount;
@@ -2752,7 +2754,7 @@ void runFunction(std::string  inputDirectoryArg   = "",
         os << "void executeSubroutine(std::string name, const std::vector<RamDomain>& args, "
               "std::vector<RamDomain>& ret) override {\n";
         // subroutine number
-        size_t subroutineNum = 0;
+        std::size_t subroutineNum = 0;
         for (auto& sub : prog.getSubroutines()) {
             os << "if (name == \"" << sub.first << "\") {\n"
                << "subroutine_" << subroutineNum

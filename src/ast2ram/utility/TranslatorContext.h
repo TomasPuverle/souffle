@@ -81,36 +81,37 @@ public:
     std::vector<ast::Directive*> getLoadDirectives(const ast::QualifiedName& name) const;
     std::string getAttributeTypeQualifier(const ast::QualifiedName& name) const;
     bool hasSizeLimit(const ast::Relation* relation) const;
-    size_t getSizeLimit(const ast::Relation* relation) const;
+    std::size_t getSizeLimit(const ast::Relation* relation) const;
 
     /** Clause methods */
     std::vector<ast::Clause*> getClauses(const ast::QualifiedName& name) const;
     bool isRecursiveClause(const ast::Clause* clause) const;
-    size_t getClauseNum(const ast::Clause* clause) const;
+    std::size_t getClauseNum(const ast::Clause* clause) const;
 
     /** SCC methods */
-    size_t getNumberOfSCCs() const;
-    bool isRecursiveSCC(size_t scc) const;
-    std::set<const ast::Relation*> getExpiredRelations(size_t scc) const;
-    std::set<const ast::Relation*> getRelationsInSCC(size_t scc) const;
-    std::set<const ast::Relation*> getInputRelationsInSCC(size_t scc) const;
-    std::set<const ast::Relation*> getOutputRelationsInSCC(size_t scc) const;
+    std::size_t getNumberOfSCCs() const;
+    bool isRecursiveSCC(std::size_t scc) const;
+    std::set<const ast::Relation*> getExpiredRelations(std::size_t scc) const;
+    std::set<const ast::Relation*> getRelationsInSCC(std::size_t scc) const;
+    std::set<const ast::Relation*> getInputRelationsInSCC(std::size_t scc) const;
+    std::set<const ast::Relation*> getOutputRelationsInSCC(std::size_t scc) const;
 
     /** Functor methods */
-    TypeAttribute getFunctorReturnType(const ast::Functor* functor) const;
-    TypeAttribute getFunctorArgType(const ast::Functor* functor, size_t idx) const;
-    const std::vector<TypeAttribute>& getFunctorArgTypes(const ast::UserDefinedFunctor& udf) const;
-    bool isStatefulFunctor(const ast::UserDefinedFunctor* functor) const;
+    TypeAttribute getFunctorReturnTypeAttribute(const ast::Functor& functor) const;
+    TypeAttribute getFunctorParamTypeAtribute(const ast::Functor& functor, std::size_t idx) const;
+    std::vector<TypeAttribute> getFunctorParamTypeAtributes(const ast::UserDefinedFunctor& udf) const;
+    bool isStatefulFunctor(const ast::UserDefinedFunctor& functor) const;
 
     /** ADT methods */
     bool isADTEnum(const ast::BranchInit* adt) const;
     int getADTBranchId(const ast::BranchInit* adt) const;
+    bool isADTBranchSimple(const ast::BranchInit* adt) const;
 
     /** Polymorphic objects methods */
-    ast::NumericConstant::Type getInferredNumericConstantType(const ast::NumericConstant* nc) const;
-    AggregateOp getOverloadedAggregatorOperator(const ast::Aggregator* aggr) const;
-    BinaryConstraintOp getOverloadedBinaryConstraintOperator(const ast::BinaryConstraint* bc) const;
-    FunctorOp getOverloadedFunctorOp(const ast::IntrinsicFunctor* inf) const;
+    ast::NumericConstant::Type getInferredNumericConstantType(const ast::NumericConstant& nc) const;
+    AggregateOp getOverloadedAggregatorOperator(const ast::Aggregator& aggr) const;
+    BinaryConstraintOp getOverloadedBinaryConstraintOperator(const ast::BinaryConstraint& bc) const;
+    FunctorOp getOverloadedFunctorOp(const ast::IntrinsicFunctor& inf) const;
 
     /** Analyses */
     const ast::SipsMetric* getSipsMetric() const {
@@ -120,7 +121,7 @@ public:
     /** Translation strategy */
     Own<ram::Statement> translateNonRecursiveClause(const ast::Clause& clause) const;
     Own<ram::Statement> translateRecursiveClause(
-            const ast::Clause& clause, const std::set<const ast::Relation*>& scc, size_t version) const;
+            const ast::Clause& clause, const std::set<const ast::Relation*>& scc, std::size_t version) const;
 
     Own<ram::Condition> translateConstraint(const ValueIndex& index, const ast::Literal* lit) const;
 
@@ -137,7 +138,7 @@ private:
     const ast::analysis::TypeEnvironment* typeEnv;
     const ast::analysis::SumTypeBranchesAnalysis* sumTypeBranches;
     const ast::analysis::PolymorphicObjectsAnalysis* polyAnalysis;
-    std::map<const ast::Clause*, size_t> clauseNums;
+    std::map<const ast::Clause*, std::size_t> clauseNums;
     Own<ast::SipsMetric> sipsMetric;
     Own<TranslationStrategy> translationStrategy;
 };

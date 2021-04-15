@@ -18,7 +18,6 @@
 #include "ram/Aggregate.h"
 #include "ram/AutoIncrement.h"
 #include "ram/Break.h"
-#include "ram/Choice.h"
 #include "ram/Condition.h"
 #include "ram/Conjunction.h"
 #include "ram/Constraint.h"
@@ -27,16 +26,17 @@
 #include "ram/Expression.h"
 #include "ram/False.h"
 #include "ram/Filter.h"
+#include "ram/IfExists.h"
 #include "ram/IndexAggregate.h"
-#include "ram/IndexChoice.h"
+#include "ram/IndexIfExists.h"
 #include "ram/IndexScan.h"
+#include "ram/Insert.h"
 #include "ram/IntrinsicOperator.h"
 #include "ram/Negation.h"
 #include "ram/Node.h"
 #include "ram/NumericConstant.h"
 #include "ram/Operation.h"
 #include "ram/PackRecord.h"
-#include "ram/Project.h"
 #include "ram/ProvenanceExistenceCheck.h"
 #include "ram/Scan.h"
 #include "ram/StringConstant.h"
@@ -103,20 +103,20 @@ int LevelAnalysis::getLevel(const Node* node) const {
         }
 
         // choice
-        int visit_(type_identity<Choice>, const Choice& choice) override {
+        int visit_(type_identity<IfExists>, const IfExists& choice) override {
             return std::max(-1, dispatch(choice.getCondition()));
         }
 
         // index choice
-        int visit_(type_identity<IndexChoice>, const IndexChoice& indexChoice) override {
+        int visit_(type_identity<IndexIfExists>, const IndexIfExists& indexIfExists) override {
             int level = -1;
-            for (auto& index : indexChoice.getRangePattern().first) {
+            for (auto& index : indexIfExists.getRangePattern().first) {
                 level = std::max(level, dispatch(*index));
             }
-            for (auto& index : indexChoice.getRangePattern().second) {
+            for (auto& index : indexIfExists.getRangePattern().second) {
                 level = std::max(level, dispatch(*index));
             }
-            return std::max(level, dispatch(indexChoice.getCondition()));
+            return std::max(level, dispatch(indexIfExists.getCondition()));
         }
 
         // aggregate
@@ -152,20 +152,20 @@ int LevelAnalysis::getLevel(const Node* node) const {
             return dispatch(b.getCondition());
         }
 
-        // guarded project
-        int visit_(type_identity<GuardedProject>, const GuardedProject& guardedProject) override {
+        // guarded insert
+        int visit_(type_identity<GuardedInsert>, const GuardedInsert& guardedInsert) override {
             int level = -1;
-            for (auto& exp : guardedProject.getValues()) {
+            for (auto& exp : guardedInsert.getValues()) {
                 level = std::max(level, dispatch(*exp));
             }
-            level = std::max(level, dispatch(*guardedProject.getCondition()));
+            level = std::max(level, dispatch(*guardedInsert.getCondition()));
             return level;
         }
 
-        // project
-        int visit_(type_identity<Project>, const Project& project) override {
+        // insert
+        int visit_(type_identity<Insert>, const Insert& insert) override {
             int level = -1;
-            for (auto& exp : project.getValues()) {
+            for (auto& exp : insert.getValues()) {
                 level = std::max(level, dispatch(*exp));
             }
             return level;
